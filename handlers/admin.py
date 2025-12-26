@@ -4,9 +4,18 @@ from settings import ADMIN_IDS
 from utils.helpers import get_id_from_mention
 from tortoise.transactions import in_transaction
 from datetime import datetime
-import re  # <--- Добавили библиотеку для поиска текста
+import re
 
 labeler = BotLabeler()
+
+# --- 🔥 НОВАЯ ФУНКЦИЯ: АВТО-ОБНОВЛЕНИЕ КАРТОЧКИ ---
+async def auto_update_card(api, user_db):
+    if not user_db.card_photo_id: return
+    try:
+        new_desc = f"✦ ДОСЬЕ ИГРОКА ✦\n\n👤 Имя: {user_db.first_name}\n☢ Ранг: {user_db.get_rank()}\n💰 Баланс: {user_db.balance} чилликов\n\nОбновлено: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+        owner_id, photo_id = user_db.card_photo_id.split('_')
+        await api.photos.edit(owner_id=int(owner_id), photo_id=int(photo_id), caption=new_desc)
+    except: pass
 
 # --- ПОМОЩНИК: ПОЛУЧЕНИЕ ИМЕНИ ---
 async def get_name(message: Message, user_id: int) -> str:
@@ -40,6 +49,9 @@ async def admin_give(message: Message, match):
     user.first_name = name
     await user.save()
     
+    # 🔥 ОБНОВЛЯЕМ КАРТОЧКУ
+    await auto_update_card(message.ctx_api, user) 
+    
     await TransactionLog.create(user=user, amount=amount, description="Админ выдал")
 
     await message.answer(f"✅ Админ-чит сработал.\nВыдано {amount} Чилликов пользователю [id{target_id}|{name}].")
@@ -61,6 +73,10 @@ async def admin_remove(message: Message, match):
 
     user.balance -= amount
     await user.save()
+
+    # 🔥 ОБНОВЛЯЕМ КАРТОЧКУ
+    await auto_update_card(message.ctx_api, user)
+
     await TransactionLog.create(user=user, amount=-amount, description="Админ забрал")
 
     await message.answer(f"✅ Налоговая тут.\nСписано {amount} Чилликов у [id{target_id}|{name}].")
