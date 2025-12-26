@@ -34,24 +34,28 @@ async def get_user(message: Message) -> User:
         return user_db
     return None
 
-# --- 🎮 КЛАВИАТУРА ---
+# --- 🎮 КЛАВИАТУРА (INLINE) ---
 def get_main_keyboard():
-    kb = Keyboard(one_time=False, inline=False)
+    # ВАЖНО: inline=True делает кнопки внутри сообщения
+    kb = Keyboard(inline=True)
+    
+    # 1 ряд
     kb.add(Text("Профиль"), color=KeyboardButtonColor.PRIMARY)
     kb.add(Text("Баланс"), color=KeyboardButtonColor.SECONDARY)
     kb.row()
+    
+    # 2 ряд
     kb.add(Text("Бонус"), color=KeyboardButtonColor.POSITIVE)
     kb.add(Text("Топ"), color=KeyboardButtonColor.PRIMARY)
     kb.row()
+    
+    # 3 ряд
     kb.add(Text("Магазин"), color=KeyboardButtonColor.PRIMARY)
     kb.add(Text("Помощь"), color=KeyboardButtonColor.NEGATIVE)
+    
     return kb.get_json()
 
-# --- КОМАНДЫ (С ЗАЩИТОЙ ОТ УПОМИНАНИЙ) ---
-
-# (?i) - игнор регистра
-# (?:...|...) - варианты слов
-# (?:\s.*)?$ - разрешает любой текст (или упоминание) после команды
+# --- КОМАНДЫ ---
 
 @labeler.message(regex=r"^(?i)(?:Помощь|Команды|Меню|Help|Start|Начать)(?:\s.*)?$")
 async def help_command(message: Message):
