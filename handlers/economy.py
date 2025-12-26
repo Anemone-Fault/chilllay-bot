@@ -9,47 +9,63 @@ import random
 
 labeler = BotLabeler()
 
-@labeler.message(text=["Помощь", "Команды", "Меню", "Help", "help"])
+# --- 🎮 ГЛАВНАЯ КЛАВИАТУРА ---
+def get_main_keyboard():
+    # one_time=False — клавиатура не исчезнет
+    kb = Keyboard(one_time=False, inline=False)
+    
+    # 1 ряд (Основные)
+    kb.add(Text("Профиль"), color=KeyboardButtonColor.PRIMARY) # Синяя
+    kb.add(Text("Баланс"), color=KeyboardButtonColor.SECONDARY) # Белая
+    kb.row()
+    
+    # 2 ряд (Активности)
+    kb.add(Text("Бонус"), color=KeyboardButtonColor.POSITIVE) # Зеленая
+    kb.add(Text("Топ"), color=KeyboardButtonColor.PRIMARY)
+    kb.row()
+    
+    # 3 ряд (Инфо)
+    kb.add(Text("Магазин"), color=KeyboardButtonColor.PRIMARY)
+    kb.add(Text("Помощь"), color=KeyboardButtonColor.NEGATIVE) # Красная
+    
+    return kb.get_json()
+
+# --- 📚 МЕНЮ И ПОМОЩЬ ---
+@labeler.message(text=["Помощь", "Команды", "Меню", "Help", "help", "Start", "Начать"])
 async def help_command(message: Message, user_db: User):
     text = (
-        "📚 СПИСОК КОМАНД:\n\n"
+        "📚 НАВИГАЦИЯ:\n\n"
         "👤 ЛИЧНОЕ:\n"
-        "🔸 Профиль — Статистика и ранг\n"
-        "🔸 Баланс — Твой кошелек\n"
-        "🔸 Бонус — Ежедневная халява\n"
-        "🔸 Топ — Список богачей\n\n"
-        "💸 ФИНАНСЫ:\n"
-        "🔸 Перевод @user 100 [коммент] — Передать деньги\n"
-        "🔸 Чек 1000 3 — Создать мешок на 1000 монет для 3 человек\n"
-        "🔸 Чек 1000 3 р — Рандомный чек\n\n"
-        "🤝 РЕСПЕКТЫ:\n"
-        "🔸 +реп @user — Уважение (100 монет)\n"
-        "🔸 -реп @user — Осуждение (500 монет)\n\n"
+        "🔸 Профиль / Статус\n"
+        "🔸 Баланс / Деньги\n"
+        "🔸 Бонус (раз в 24ч)\n"
+        "🔸 Топ игроков\n\n"
+        "💸 ДЕЙСТВИЯ (Команды):\n"
+        "🔸 Перевод @user 100\n"
+        "🔸 Чек 1000 3\n"
+        "🔸 +реп @user / -реп @user\n\n"
         "🛒 МАГАЗИН:\n"
-        "🔸 Хочу [название] — Заявка на покупку\n"
-        "🔸 Промо [код] — Активация промокода"
+        "🔸 Нажми кнопку «Магазин»"
     )
     
-    # Скрытые команды только для админов
     if message.from_id in ADMIN_IDS:
-        text += (
-            "\n\n👮‍♂ АДМИН-ПАНЕЛЬ:\n"
-            "🔹 Начислить @user 1000\n"
-            "🔹 Списать @user 1000\n"
-            "🔹 Попущенный @user [причина] — Бан\n"
-            "🔹 Рассылка [текст]\n"
-            "🔹 Промокод [код] [сумма] [кол-во]\n"
-            "🔹 График — Статистика\n"
-            "🔹 Стоимость: 100 (Реплай на заявку)"
-        )
+        text += "\n\n👮‍♂ АДМИН: Начислить, Списать, Бан, Рассылка, График, Стоимость."
         
-    await message.answer(text)
+    await message.answer(text, keyboard=get_main_keyboard())
 
-@labeler.message(text="Баланс")
-async def balance(message: Message, user_db: User):
-    await message.answer(f"💰 Твои Чиллики: {user_db.balance}")
+# --- 🛒 ОБРАБОТКА КНОПКИ МАГАЗИН ---
+@labeler.message(text=["Магазин", "Shop", "Купить"])
+async def shop_info(message: Message, user_db: User):
+    text = (
+        "🛒 МАГАЗИН\n\n"
+        "Чтобы сделать заказ, просто напиши:\n"
+        "👉 Хочу [что угодно]\n\n"
+        "Пример: Хочу роспись на стене"
+    )
+    await message.answer(text, keyboard=get_main_keyboard())
 
-@labeler.message(text="Профиль")
+# --- 👤 ПРОФИЛЬ ---
+@labeler.message(text=["Профиль", "Статус", "Инфо", "Profile", "Стата"])
 async def profile(message: Message, user_db: User):
     text = (
         f"👤 [id{user_db.vk_id}|{user_db.first_name}]\n"
@@ -57,21 +73,28 @@ async def profile(message: Message, user_db: User):
         f"☢️ Ранг: {user_db.get_rank()}\n"
         f"☯️ Карма: {user_db.karma}"
     )
-    await message.answer(text)
+    await message.answer(text, keyboard=get_main_keyboard())
 
-@labeler.message(text="Топ")
+# --- 💰 БАЛАНС ---
+@labeler.message(text=["Баланс", "Деньги", "Счет", "Бабки", "Money"])
+async def balance(message: Message, user_db: User):
+    await message.answer(f"💰 Твои Чиллики: {user_db.balance}", keyboard=get_main_keyboard())
+
+# --- 🏆 ТОП ---
+@labeler.message(text=["Топ", "Рейтинг", "Богачи"])
 async def top_users(message: Message):
     users = await User.filter(is_banned=False).order_by("-balance").limit(10)
     text = "🏆 Топ Чилликов:\n\n"
     for i, u in enumerate(users, 1):
         text += f"{i}. [id{u.vk_id}|{u.first_name}] — {u.balance} ({u.get_rank()})\n"
-    await message.answer(text)
+    await message.answer(text, keyboard=get_main_keyboard())
 
-@labeler.message(text="Бонус")
+# --- 🎁 БОНУС ---
+@labeler.message(text=["Бонус", "Халява", "Bonus"])
 async def daily_bonus(message: Message, user_db: User):
     now = datetime.now(timezone.utc)
     if user_db.last_bonus and (now - user_db.last_bonus).total_seconds() < 86400:
-        return await message.answer("🕒 Куда лезешь? Бонус раз в 24 часа.")
+        return await message.answer("🕒 Куда лезешь? Бонус раз в 24 часа.", keyboard=get_main_keyboard())
     
     amount = random.randint(100, 500)
     user_db.balance += amount
@@ -79,26 +102,27 @@ async def daily_bonus(message: Message, user_db: User):
     await user_db.save()
     await TransactionLog.create(user=user_db, amount=amount, description="Бонус")
     
-    await message.answer(f"🎁 Халява! Ты нафармил {amount} Чилликов.")
+    await message.answer(f"🎁 Халява! Ты нафармил {amount} Чилликов.", keyboard=get_main_keyboard())
 
-@labeler.message(regex=r"^Перевод\s+(.*?)\s+(\d+)(?:\s+(.*))?$")
+# --- 💸 ПЕРЕВОДЫ (с сохранением кнопок) ---
+@labeler.message(regex=r"^(?:Перевод|Скинуть|Отправить)\s+(.*?)\s+(\d+)(?:\s+(.*))?$")
 async def transfer(message: Message, match, user_db: User):
     target_raw, amount_str, comment = match[0], match[1], match[2] or "Без комментария"
     amount = int(amount_str)
     target_id = get_id_from_mention(target_raw)
     
-    if not target_id: return await message.answer("❌ Кому? Используй @user.")
-    if target_id == user_db.vk_id: return await message.answer("🤡 Шизофрения лечится.")
-    if amount <= 0: return await message.answer("❌ Сумма должна быть > 0.")
+    if not target_id: return await message.answer("❌ Кому? Используй @user.", keyboard=get_main_keyboard())
+    if target_id == user_db.vk_id: return await message.answer("🤡 Шизофрения лечится.", keyboard=get_main_keyboard())
+    if amount <= 0: return await message.answer("❌ Сумма должна быть > 0.", keyboard=get_main_keyboard())
     if user_db.balance < amount: 
-        return await message.answer(f"❌ Недостаточно Чилликов.\nУ тебя {user_db.balance}, а хочешь кинуть {amount}.\nНищий.")
+        return await message.answer(f"❌ Недостаточно Чилликов.", keyboard=get_main_keyboard())
 
     async with in_transaction():
         sender = await User.filter(vk_id=user_db.vk_id).select_for_update().first()
         recipient = await User.get_or_none(vk_id=target_id)
         
-        if not recipient: return await message.answer("❌ Юзер не найден в базе.")
-        if sender.balance < amount: return await message.answer("❌ Не хватает денег.")
+        if not recipient: return await message.answer("❌ Юзер не найден в базе.", keyboard=get_main_keyboard())
+        if sender.balance < amount: return await message.answer("❌ Не хватает денег.", keyboard=get_main_keyboard())
 
         sender.balance -= amount
         recipient.balance += amount
@@ -108,7 +132,7 @@ async def transfer(message: Message, match, user_db: User):
         await TransactionLog.create(user=sender, amount=-amount, description=f"Перевод -> {target_id}")
         await TransactionLog.create(user=recipient, amount=amount, description=f"Перевод <- {sender.vk_id}")
 
-    await message.answer(f"✅ Перевод выполнен.\n💸 -{amount} Чилликов улетели.")
+    await message.answer(f"✅ Перевод выполнен.\n💸 -{amount} Чилликов улетели.", keyboard=get_main_keyboard())
     try:
         await message.ctx_api.messages.send(
             peer_id=target_id, 
@@ -117,19 +141,20 @@ async def transfer(message: Message, match, user_db: User):
         )
     except: pass
 
+# --- 🤝 РЕСПЕКТЫ ---
 @labeler.message(regex=r"^\+реп\s+(.*)$")
 async def plus_rep(message: Message, match, user_db: User):
     target_id = get_id_from_mention(match[0])
     cost = 100 
-    if not target_id: return await message.answer("❌ Кому респект?")
-    if target_id == user_db.vk_id: return await message.answer("🤡 Себя не хвали.")
-    if user_db.balance < cost: return await message.answer(f"❌ Респект стоит {cost} Чилликов. Работай иди.")
+    if not target_id: return await message.answer("❌ Кому респект?", keyboard=get_main_keyboard())
+    if target_id == user_db.vk_id: return await message.answer("🤡 Себя не хвали.", keyboard=get_main_keyboard())
+    if user_db.balance < cost: return await message.answer(f"❌ Респект стоит {cost} Чилликов.", keyboard=get_main_keyboard())
 
     async with in_transaction():
         sender = await User.filter(vk_id=user_db.vk_id).select_for_update().first()
         target = await User.get_or_none(vk_id=target_id)
-        if not target: return await message.answer("❌ Юзер не найден.")
-        if sender.balance < cost: return await message.answer("❌ Мало денег.")
+        if not target: return await message.answer("❌ Юзер не найден.", keyboard=get_main_keyboard())
+        if sender.balance < cost: return await message.answer("❌ Мало денег.", keyboard=get_main_keyboard())
         
         sender.balance -= cost
         target.karma += 1
@@ -137,20 +162,20 @@ async def plus_rep(message: Message, match, user_db: User):
         await target.save()
         await TransactionLog.create(user=sender, amount=-cost, description="Респект")
 
-    await message.answer(f"🫡 Респект отправлен. Списано {cost} Чилликов.\nКарма получателя: {target.karma}")
+    await message.answer(f"🫡 Респект отправлен.", keyboard=get_main_keyboard())
 
 @labeler.message(regex=r"^\-реп\s+(.*)$")
 async def minus_rep(message: Message, match, user_db: User):
     target_id = get_id_from_mention(match[0])
     cost = 500
-    if not target_id: return await message.answer("❌ В кого плюем?")
-    if user_db.balance < cost: return await message.answer(f"❌ Хейт стоит {cost} Чилликов.")
+    if not target_id: return await message.answer("❌ В кого плюем?", keyboard=get_main_keyboard())
+    if user_db.balance < cost: return await message.answer(f"❌ Хейт стоит {cost} Чилликов.", keyboard=get_main_keyboard())
 
     async with in_transaction():
         sender = await User.filter(vk_id=user_db.vk_id).select_for_update().first()
         target = await User.get_or_none(vk_id=target_id)
-        if not target: return await message.answer("❌ Юзер не найден.")
-        if sender.balance < cost: return await message.answer("❌ Мало денег.")
+        if not target: return await message.answer("❌ Юзер не найден.", keyboard=get_main_keyboard())
+        if sender.balance < cost: return await message.answer("❌ Мало денег.", keyboard=get_main_keyboard())
         
         sender.balance -= cost
         target.karma -= 1
@@ -158,17 +183,18 @@ async def minus_rep(message: Message, match, user_db: User):
         await target.save()
         await TransactionLog.create(user=sender, amount=-cost, description="Дизлайк")
 
-    await message.answer(f"💦 Харкнул в профиль. Списано {cost} Чилликов.\nКарма жертвы: {target.karma}")
+    await message.answer(f"💦 Харкнул в профиль.", keyboard=get_main_keyboard())
 
+# --- 🧾 ЧЕКИ ---
 @labeler.message(regex=r"^Чек\s+(\d+)(?:\s+(\d+))?(?:\s+(р))?$")
 async def create_cheque(message: Message, match, user_db: User):
     amount = int(match[0])
     activations = int(match[1]) if match[1] else 1
     is_random = bool(match[2])
     
-    if amount < activations: return await message.answer("❌ Сумма меньше количества мест.")
-    if activations < 1: return await message.answer("❌ Мест должно быть >= 1.")
-    if user_db.balance < amount: return await message.answer(f"❌ У тебя нет {amount} Чилликов.")
+    if amount < activations: return await message.answer("❌ Сумма меньше мест.", keyboard=get_main_keyboard())
+    if activations < 1: return await message.answer("❌ Мест >= 1.", keyboard=get_main_keyboard())
+    if user_db.balance < amount: return await message.answer(f"❌ Нет денег.", keyboard=get_main_keyboard())
 
     code = generate_cheque_code()
     
@@ -186,20 +212,22 @@ async def create_cheque(message: Message, match, user_db: User):
         await TransactionLog.create(user=sender, amount=-amount, description=f"Чек {code}")
 
     type_text = "🎲 Рандомный" if is_random else "💰 Фиксированный"
-    kb = Keyboard(inline=True).add(Text("Забрать 🖐", payload={"cmd": "claim", "code": code}), color=KeyboardButtonColor.POSITIVE).get_json()
     
-    await message.answer(f"🤑 АТТРАКЦИОН ЩЕДРОСТИ!\n{type_text} чек на {amount} Чилликов!\nМест: {activations}", keyboard=kb)
+    # Тут хитрость: Кнопка "Забрать" прикрепляется К СООБЩЕНИЮ (inline), 
+    # а главное меню остается ВНИЗУ (потому что мы его не убираем).
+    kb_inline = Keyboard(inline=True).add(Text("Забрать 🖐", payload={"cmd": "claim", "code": code}), color=KeyboardButtonColor.POSITIVE).get_json()
+    
+    await message.answer(f"🤑 АТТРАКЦИОН ЩЕДРОСТИ!\n{type_text} чек на {amount} Чилликов!\nМест: {activations}", keyboard=kb_inline)
 
 @labeler.message(payload_map={"cmd": "claim"})
 async def claim_cheque(message: Message, user_db: User):
     code = message.get_payload_json()["code"]
     
     async with in_transaction():
-        # Блокируем чек
         cheque = await Cheque.filter(code=code).select_for_update().first()
         
         if not cheque: return await message.answer("❌ Чек исчез.", ephemeral=True)
-        if cheque.activations_current >= cheque.activations_limit: return await message.answer("❌ Пусто. Ты слишком медленный.", ephemeral=True)
+        if cheque.activations_current >= cheque.activations_limit: return await message.answer("❌ Пусто.", ephemeral=True)
         if user_db.vk_id in cheque.users_activated: return await message.answer("❌ Ты уже брал!", ephemeral=True)
         if cheque.creator_id == user_db.vk_id: return await message.answer("🤡 Свой чек? Серьезно?", ephemeral=True)
         
@@ -207,7 +235,6 @@ async def claim_cheque(message: Message, user_db: User):
         if cheque.mode == "fix":
             prize = cheque.total_amount // cheque.activations_limit
         else:
-            # ЧЕСТНЫЙ РАНДОМ С УЧЕТОМ ОСТАТКА
             remains_activations = cheque.activations_limit - cheque.activations_current
             if remains_activations == 1:
                 prize = cheque.amount_left
@@ -216,11 +243,9 @@ async def claim_cheque(message: Message, user_db: User):
                 if max_safe_amount < 1: max_safe_amount = 1
                 prize = random.randint(1, max_safe_amount)
 
-        # Вычитаем из остатка и сохраняем
         cheque.amount_left -= prize
         cheque.activations_current += 1
         
-        # Обновляем список пользователей
         users = list(cheque.users_activated)
         users.append(user_db.vk_id)
         cheque.users_activated = users
@@ -231,7 +256,8 @@ async def claim_cheque(message: Message, user_db: User):
         await user_db.save()
         await TransactionLog.create(user=user_db, amount=prize, description=f"Чек {code}")
 
-    await message.answer(f"✅ Урвал кусок!\n+{prize} Чилликов.")
+    # После взятия чека обновляем меню
+    await message.answer(f"✅ Урвал кусок!\n+{prize} Чилликов.", keyboard=get_main_keyboard())
 
 @labeler.message(regex=r"^Промо\s+(.*)$")
 async def activate_promo(message: Message, match, user_db: User):
@@ -239,13 +265,13 @@ async def activate_promo(message: Message, match, user_db: User):
     code = match[0].strip()
     promo = await Promo.get_or_none(code=code)
     
-    if not promo: return await message.answer("❌ Промокод не найден.")
-    if promo.current_activations >= promo.max_activations: return await message.answer("❌ Промокод закончился.")
-    if user_db.vk_id in promo.users_activated: return await message.answer("❌ Ты уже активировал.")
+    if not promo: return await message.answer("❌ Промокод не найден.", keyboard=get_main_keyboard())
+    if promo.current_activations >= promo.max_activations: return await message.answer("❌ Промокод закончился.", keyboard=get_main_keyboard())
+    if user_db.vk_id in promo.users_activated: return await message.answer("❌ Ты уже активировал.", keyboard=get_main_keyboard())
     
     async with in_transaction():
         p = await Promo.filter(code=code).select_for_update().first()
-        if p.current_activations >= p.max_activations: return await message.answer("❌ Не успел!")
+        if p.current_activations >= p.max_activations: return await message.answer("❌ Не успел!", keyboard=get_main_keyboard())
         
         p.current_activations += 1
         users = list(p.users_activated)
@@ -257,4 +283,4 @@ async def activate_promo(message: Message, match, user_db: User):
         await user_db.save()
         await TransactionLog.create(user=user_db, amount=p.amount, description=f"Promo {code}")
         
-    await message.answer(f"✅ Промокод активирован!\nНасыпал тебе {p.amount} Чилликов.")
+    await message.answer(f"✅ Промокод активирован!\nНасыпал тебе {p.amount} Чилликов.", keyboard=get_main_keyboard())
