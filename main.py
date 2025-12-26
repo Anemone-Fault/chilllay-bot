@@ -3,6 +3,7 @@ from aiohttp import web
 from vkbottle import Bot
 from tortoise import Tortoise
 
+# ВАЖНО: Исправлен импорт (middleware без 's', как у тебя в папке)
 from handlers import economy, shop, admin
 from middleware.system import SystemMiddleware
 from settings import VK_GROUP_TOKEN, DATABASE_URL
@@ -14,7 +15,7 @@ bot.labeler.load(economy.labeler)
 bot.labeler.load(shop.labeler)
 bot.labeler.load(admin.labeler)
 
-# --- Функции запуска ---
+# --- Функции запуска (База + Веб-сервер для Render) ---
 
 async def init_db():
     print("💾 Connecting to DB...")
@@ -35,13 +36,11 @@ async def start_web_server():
     await site.start()
     print(f"🌍 Web server running on port {port}")
 
-# --- Добавляем задачи в автозапуск бота ---
-# Бот сам запустит эти функции, когда начнет работу
+# Добавляем задачи в автозапуск: когда бот проснется, он запустит БД и сервер
 bot.loop_wrapper.on_startup.append(init_db)
 bot.loop_wrapper.on_startup.append(start_web_server)
 
 if __name__ == "__main__":
     print("🚀 Bot starting...")
-    # Запускаем бота напрямую, без asyncio.run()
-    bot.run_polling()
-
+    # run_forever() сам создает нужный цикл и держит бота включенным
+    bot.run_forever()
