@@ -1,52 +1,42 @@
 from vkbottle import BaseMiddleware
 from vkbottle.bot import Message
 from database.models import User
-import time
-from settings import RATE_LIMIT_SECONDS, STARTING_BALANCE
-
-user_last_msg = {}
 
 class SystemMiddleware(BaseMiddleware[Message]):
     async def pre(self):
-        # Игнорируем сообщения от групп (отрицательный ID)
-        if self.event.from_id < 0:
-            self.stop("Group message")
-            return
-
+        # 1. Получаем ID того, кто пишет
         user_id = self.event.from_id
         
-        # 1. Throttling (Анти-спам)
-        now = time.time()
-        last_time = user_last_msg.get(user_id, 0)
-        if now - last_time < RATE_LIMIT_SECONDS:
-            self.stop("Throttled")
+        # Если пишет сообщество (id < 0), игнорируем
+        if user_id < 0:
             return
-        user_last_msg[user_id] = now
 
-        # 2. Авто-регистрация (С кэшированием запроса к БД)
-        user = await User.get_or_none(vk_id=user_id)
-        
-        if not user:
+        # 2. Пробуем получить реальное имя из ВКонтакте
+        try:
+            users_info = await self.event.ctx_api.users.get(user_ids=[user_id])
+            first_name = users_info[0].first_name
+            last_name = users_info[0].last_name
+        except:
+            # Если произошел сбой API
             first_name = "Неизвестный"
-            last_name = "Игрок"
-            try:
-                # Получаем инфо, если профиль открыт
-                user_infos = await self.event.ctx_api.users.get(user_id)
-                if user_infos:
-                    first_name = user_infos[0].first_name
-                    last_name = user_infos[0].last_name
-            except Exception as e:
-                print(f"⚠️ Не удалось получить имя для {user_id}: {e}")
+            last_name = "Странник"
 
-            user = await User.create(
-                vk_id=user_id,
-                first_name=first_name,
-                last_name=last_name,
-                balance=STARTING_BALANCE
-            )
+        # 3. Достаем юзера из Базы или Создаем нового
+        user_db, created = await User.get_or_create(
+            vk_id=user_id,
+            defaults={
+                "first_name": first_name,
+                "last_name": last_name,
+            }
+        )
 
-        if user.is_banned:
-            self.stop("Banned user")
-            return
+        # 4. 🔥 АВТО-ОБНОВЛЕНИЕ ИМЕНИ 🔥
+        # Если имя в Базе отличается от реального в ВК - обновляем Базу
+        if user_db.first_name != first_name or user_db.last_name != last_name:
+            user_db.first_name = first_name
+            user_db.last_name = last_name
+            await user_db.save()
 
-        self.send({"user_db": user})
+        # 5. Прокидываем юзера дальше в команды
+        self.event.state.peer_id = self.event.peer_id
+        self.event.state.user_db = user_db
