@@ -4,7 +4,7 @@ from vkbottle import Bot
 from tortoise import Tortoise
 
 from handlers import economy, shop, admin
-from middlewares.system import SystemMiddleware
+from middleware.system import SystemMiddleware
 from settings import VK_GROUP_TOKEN, DATABASE_URL
 
 # Инициализация бота
@@ -44,3 +44,4 @@ if __name__ == "__main__":
     print("🚀 Bot starting...")
     # Запускаем бота напрямую, без asyncio.run()
     bot.run_polling()
+
