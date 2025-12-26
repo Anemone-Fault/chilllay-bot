@@ -1,7 +1,6 @@
 from vkbottle.bot import BotLabeler, Message
 from vkbottle import Keyboard, KeyboardButtonColor, Text
 from database.models import User, TransactionLog, Cheque, Promo
-from middleware.system import SystemMiddleware  # <--- ВАЖНЫЙ ИМПОРТ
 from tortoise.transactions import in_transaction
 from datetime import datetime, timezone
 from utils.helpers import get_id_from_mention, generate_cheque_code
@@ -10,33 +9,55 @@ import random
 
 labeler = BotLabeler()
 
-# --- ВАЖНО: Подключаем Middleware к этому файлу ---
-labeler.message_view.register_middleware(SystemMiddleware)
-# -------------------------------------------------
+# --- 🛠 ПОМОЩНИК: ПОЛУЧЕНИЕ ИГРОКА ---
+# Эта функция заменяет сломанный Middleware.
+# Она находит игрока в БД или создает нового.
+async def get_user(message: Message) -> User:
+    user_id = message.from_id
+    if user_id > 0:
+        try:
+            # Пробуем узнать имя
+            users_info = await message.ctx_api.users.get(user_ids=[user_id])
+            first_name = users_info[0].first_name
+            last_name = users_info[0].last_name
+        except:
+            first_name = "Неизвестный"
+            last_name = "Странник"
+            
+        # Достаем или создаем
+        user_db, created = await User.get_or_create(
+            vk_id=user_id,
+            defaults={ "first_name": first_name, "last_name": last_name }
+        )
+        
+        # Обновляем имя если сменилось
+        if user_db.first_name != first_name or user_db.last_name != last_name:
+            user_db.first_name = first_name
+            user_db.last_name = last_name
+            await user_db.save()
+            
+        return user_db
+    return None
 
-# --- 🎮 ГЛАВНАЯ КЛАВИАТУРА ---
+# --- 🎮 КЛАВИАТУРА ---
 def get_main_keyboard():
     kb = Keyboard(one_time=False, inline=False)
-    
-    # 1 ряд
     kb.add(Text("Профиль"), color=KeyboardButtonColor.PRIMARY)
     kb.add(Text("Баланс"), color=KeyboardButtonColor.SECONDARY)
     kb.row()
-    
-    # 2 ряд
     kb.add(Text("Бонус"), color=KeyboardButtonColor.POSITIVE)
     kb.add(Text("Топ"), color=KeyboardButtonColor.PRIMARY)
     kb.row()
-    
-    # 3 ряд
     kb.add(Text("Магазин"), color=KeyboardButtonColor.PRIMARY)
     kb.add(Text("Помощь"), color=KeyboardButtonColor.NEGATIVE)
-    
     return kb.get_json()
 
-# --- 📚 МЕНЮ И ПОМОЩЬ ---
+# --- КОМАНДЫ ---
+
 @labeler.message(text=["Помощь", "Команды", "Меню", "Help", "help", "Start", "Начать"])
-async def help_command(message: Message, user_db: User):
+async def help_command(message: Message):
+    user_db = await get_user(message) # <--- Сами берем юзера
+    
     text = (
         "📚 НАВИГАЦИЯ:\n\n"
         "👤 ЛИЧНОЕ:\n"
@@ -57,20 +78,14 @@ async def help_command(message: Message, user_db: User):
         
     await message.answer(text, keyboard=get_main_keyboard())
 
-# --- 🛒 ОБРАБОТКА КНОПКИ МАГАЗИН ---
 @labeler.message(text=["Магазин", "Shop", "Купить"])
-async def shop_info(message: Message, user_db: User):
-    text = (
-        "🛒 МАГАЗИН\n\n"
-        "Чтобы сделать заказ, просто напиши:\n"
-        "👉 Хочу [что угодно]\n\n"
-        "Пример: Хочу роспись на стене"
-    )
-    await message.answer(text, keyboard=get_main_keyboard())
+async def shop_info(message: Message):
+    await message.answer("🛒 Чтобы купить что-то, напиши:\n👉 Хочу [товар]", keyboard=get_main_keyboard())
 
-# --- 👤 ПРОФИЛЬ ---
 @labeler.message(text=["Профиль", "Статус", "Инфо", "Profile", "Стата"])
-async def profile(message: Message, user_db: User):
+async def profile(message: Message):
+    user_db = await get_user(message) # <--- Сами берем юзера
+    
     text = (
         f"👤 [id{user_db.vk_id}|{user_db.first_name}]\n"
         f"💰 Чиллики: {user_db.balance}\n"
@@ -79,23 +94,24 @@ async def profile(message: Message, user_db: User):
     )
     await message.answer(text, keyboard=get_main_keyboard())
 
-# --- 💰 БАЛАНС ---
 @labeler.message(text=["Баланс", "Деньги", "Счет", "Бабки", "Money"])
-async def balance(message: Message, user_db: User):
+async def balance(message: Message):
+    user_db = await get_user(message) # <--- Сами берем юзера
     await message.answer(f"💰 Твои Чиллики: {user_db.balance}", keyboard=get_main_keyboard())
 
-# --- 🏆 ТОП ---
 @labeler.message(text=["Топ", "Рейтинг", "Богачи"])
 async def top_users(message: Message):
+    # Тут юзер не нужен, просто список
     users = await User.filter(is_banned=False).order_by("-balance").limit(10)
     text = "🏆 Топ Чилликов:\n\n"
     for i, u in enumerate(users, 1):
         text += f"{i}. [id{u.vk_id}|{u.first_name}] — {u.balance} ({u.get_rank()})\n"
     await message.answer(text, keyboard=get_main_keyboard())
 
-# --- 🎁 БОНУС ---
 @labeler.message(text=["Бонус", "Халява", "Bonus"])
-async def daily_bonus(message: Message, user_db: User):
+async def daily_bonus(message: Message):
+    user_db = await get_user(message) # <--- Сами берем юзера
+    
     now = datetime.now(timezone.utc)
     if user_db.last_bonus and (now - user_db.last_bonus).total_seconds() < 86400:
         return await message.answer("🕒 Куда лезешь? Бонус раз в 24 часа.", keyboard=get_main_keyboard())
@@ -108,9 +124,10 @@ async def daily_bonus(message: Message, user_db: User):
     
     await message.answer(f"🎁 Халява! Ты нафармил {amount} Чилликов.", keyboard=get_main_keyboard())
 
-# --- 💸 ПЕРЕВОДЫ ---
 @labeler.message(regex=r"^(?:Перевод|Скинуть|Отправить)\s+(.*?)\s+(\d+)(?:\s+(.*))?$")
-async def transfer(message: Message, match, user_db: User):
+async def transfer(message: Message, match):
+    user_db = await get_user(message) # <--- Сами берем юзера
+    
     target_raw, amount_str, comment = match[0], match[1], match[2] or "Без комментария"
     amount = int(amount_str)
     target_id = get_id_from_mention(target_raw)
@@ -145,9 +162,10 @@ async def transfer(message: Message, match, user_db: User):
         )
     except: pass
 
-# --- 🤝 РЕСПЕКТЫ ---
 @labeler.message(regex=r"^\+реп\s+(.*)$")
-async def plus_rep(message: Message, match, user_db: User):
+async def plus_rep(message: Message, match):
+    user_db = await get_user(message) # <--- Сами берем юзера
+    
     target_id = get_id_from_mention(match[0])
     cost = 100 
     if not target_id: return await message.answer("❌ Кому респект?", keyboard=get_main_keyboard())
@@ -169,7 +187,9 @@ async def plus_rep(message: Message, match, user_db: User):
     await message.answer(f"🫡 Респект отправлен.", keyboard=get_main_keyboard())
 
 @labeler.message(regex=r"^\-реп\s+(.*)$")
-async def minus_rep(message: Message, match, user_db: User):
+async def minus_rep(message: Message, match):
+    user_db = await get_user(message) # <--- Сами берем юзера
+
     target_id = get_id_from_mention(match[0])
     cost = 500
     if not target_id: return await message.answer("❌ В кого плюем?", keyboard=get_main_keyboard())
@@ -189,9 +209,10 @@ async def minus_rep(message: Message, match, user_db: User):
 
     await message.answer(f"💦 Харкнул в профиль.", keyboard=get_main_keyboard())
 
-# --- 🧾 ЧЕКИ ---
 @labeler.message(regex=r"^Чек\s+(\d+)(?:\s+(\d+))?(?:\s+(р))?$")
-async def create_cheque(message: Message, match, user_db: User):
+async def create_cheque(message: Message, match):
+    user_db = await get_user(message) # <--- Сами берем юзера
+    
     amount = int(match[0])
     activations = int(match[1]) if match[1] else 1
     is_random = bool(match[2])
@@ -221,7 +242,9 @@ async def create_cheque(message: Message, match, user_db: User):
     await message.answer(f"🤑 АТТРАКЦИОН ЩЕДРОСТИ!\n{type_text} чек на {amount} Чилликов!\nМест: {activations}", keyboard=kb_inline)
 
 @labeler.message(payload_map={"cmd": "claim"})
-async def claim_cheque(message: Message, user_db: User):
+async def claim_cheque(message: Message):
+    user_db = await get_user(message) # <--- Сами берем юзера
+    
     code = message.get_payload_json()["code"]
     
     async with in_transaction():
@@ -260,7 +283,9 @@ async def claim_cheque(message: Message, user_db: User):
     await message.answer(f"✅ Урвал кусок!\n+{prize} Чилликов.", keyboard=get_main_keyboard())
 
 @labeler.message(regex=r"^Промо\s+(.*)$")
-async def activate_promo(message: Message, match, user_db: User):
+async def activate_promo(message: Message, match):
+    user_db = await get_user(message) # <--- Сами берем юзера
+    
     if message.peer_id != message.from_id: return
     code = match[0].strip()
     promo = await Promo.get_or_none(code=code)
