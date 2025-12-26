@@ -1,64 +1,70 @@
 from vkbottle.bot import BotLabeler, Message
-from database.models import User, ShopRequest, RequestStatus, TransactionLog
-from tortoise.transactions import in_transaction
+from database.models import User, ShopRequest, RequestStatus
 from settings import ADMIN_IDS
 
 labeler = BotLabeler()
 
+# --- 🛠 ПОМОЩНИК (ТОТ ЖЕ САМЫЙ) ---
+async def get_user(message: Message) -> User:
+    user_id = message.from_id
+    if user_id > 0:
+        try:
+            users_info = await message.ctx_api.users.get(user_ids=[user_id])
+            first_name = users_info[0].first_name
+            last_name = users_info[0].last_name
+        except:
+            first_name = "Неизвестный"
+            last_name = "Странник"
+            
+        user_db, created = await User.get_or_create(
+            vk_id=user_id,
+            defaults={ "first_name": first_name, "last_name": last_name }
+        )
+        
+        if user_db.first_name != first_name or user_db.last_name != last_name:
+            user_db.first_name = first_name
+            user_db.last_name = last_name
+            await user_db.save()
+            
+        return user_db
+    return None
+
+# --- КОМАНДА: ХОЧУ (Покупка) ---
 @labeler.message(regex=r"^Хочу\s+(.*)$")
-async def buy_request(message: Message, match, user_db: User):
-    # Работает только в ЛС
-    if message.peer_id != message.from_id:
-        return
-        
-    item = match[0]
-    req = await ShopRequest.create(user=user_db, item_text=item)
+async def buy_request(message: Message, match):
+    # 1. Сами получаем пользователя
+    user_db = await get_user(message)
     
-    await message.answer(f"📝 Заявка #{req.id} принята.\nЖди, пока Админ проснется и назовет цену в Чилликах.")
+    # 2. Получаем текст товара
+    item_text = match[0]
     
-    # ЕДИНЫЙ ФОРМАТ: "ЗАЯВКА #..."
-    msg = (
-        f"🛒 ЗАЯВКА #{req.id}\n"
-        f"👤 [id{user_db.vk_id}|{user_db.first_name}]\n"
-        f"📦 Товар: {item}\n\n"
-        f"Ответь (Reply): Стоимость: 1000"
+    # 3. Создаем заявку в базе
+    request = await ShopRequest.create(
+        user=user_db,
+        item_text=item_text,
+        status=RequestStatus.CREATED
     )
+    
+    # 4. Отвечаем игроку
+    await message.answer(
+        f"✅ Заявка №{request.id} принята!\n"
+        f"📝 Товар: {item_text}\n\n"
+        f"Жди, пока Администратор назовет цену. Тебе придет уведомление."
+    )
+    
+    # 5. Стучим Админам в личку
     for admin_id in ADMIN_IDS:
         try:
-            await message.ctx_api.messages.send(peer_id=admin_id, message=msg, random_id=0)
-        except: pass
-
-@labeler.message(payload_map={"cmd": "shop_buy"})
-async def shop_confirm(message: Message, user_db: User):
-    payload = message.get_payload_json()
-    req_id, price = payload["req_id"], payload["price"]
-    
-    req = await ShopRequest.get_or_none(id=req_id)
-    if not req or req.status != RequestStatus.PRICE_SET: return await message.answer("❌ Неактуально.")
-    if user_db.balance < price: return await message.answer("❌ Братан, у тебя карманы дырявые.")
-        
-    async with in_transaction():
-        u = await User.filter(vk_id=user_db.vk_id).select_for_update().first()
-        if u.balance < price: return await message.answer("❌ Не хватает Чилликов.")
-        
-        u.balance -= price
-        await u.save()
-        
-        req.status = RequestStatus.COMPLETED
-        await req.save()
-        await TransactionLog.create(user=u, amount=-price, description=f"Shop: {req.item_text}")
-    
-    await message.answer(f"✅ Сделка закрыта.\nСписано {price} Чилликов.")
-    for admin_id in ADMIN_IDS:
-        try:
-            await message.ctx_api.messages.send(peer_id=admin_id, message=f"💰 Оплачена заявка #{req_id} ({price}).", random_id=0)
-        except: pass
-
-@labeler.message(payload_map={"cmd": "shop_cancel"})
-async def shop_cancel(message: Message, user_db: User):
-    req_id = message.get_payload_json()["req_id"]
-    req = await ShopRequest.get_or_none(id=req_id)
-    if req:
-        req.status = RequestStatus.CANCELED
-        await req.save()
-    await message.answer("❌ Отменено.")
+            await message.ctx_api.messages.send(
+                peer_id=admin_id,
+                message=(
+                    f"🛒 НОВАЯ ЗАЯВКА №{request.id}!\n"
+                    f"👤 От: [id{user_db.vk_id}|{user_db.first_name}]\n"
+                    f"📦 Хочет: {item_text}\n\n"
+                    f"👉 Чтобы установить цену, ответь на это сообщение командой:\n"
+                    f"Стоимость: 100"
+                ),
+                random_id=0
+            )
+        except:
+            pass # Если у админа закрыта личка
