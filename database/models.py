@@ -11,7 +11,7 @@ class User(models.Model):
     vk_id = fields.BigIntField(pk=True)
     first_name = fields.CharField(max_length=255)
     last_name = fields.CharField(max_length=255)
-    balance = fields.IntField(default=1000)
+    balance = fields.IntField(default=1000) # Стартовый баланс (1000 монет)
     karma = fields.IntField(default=0)
     is_admin = fields.BooleanField(default=False)
     is_banned = fields.BooleanField(default=False)
@@ -22,10 +22,14 @@ class User(models.Model):
         table = "users"
     
     def get_rank(self) -> str:
+        # Если карма ужасная (-10 и ниже), добавляем позорную приписку
         suffix = " (Гниль 💩)" if self.karma < -10 else ""
         b = self.balance
-        if b < 1000: return f"Биомусор 🦠{suffix}"
-        if b < 5000: return f"Попущ 🤡{suffix}"
+        
+        # --- СИСТЕМА РАНГОВ ---
+        if b < 500: return f"Амеба 🦠{suffix}"        # Если слил почти всё
+        if b < 1000: return f"Биомусор 🗑️{suffix}"   # Если меньше стартовых 1000
+        if b < 5000: return f"Попущ 🤡{suffix}"       # Новички (от 1000 до 5000)
         if b < 20000: return f"Говночист 🚽{suffix}"
         if b < 50000: return f"Крыса канцелярская 🐀{suffix}"
         if b < 100000: return f"Скам-мамонт 🐒{suffix}"
@@ -52,7 +56,7 @@ class Cheque(models.Model):
     code = fields.CharField(pk=True, max_length=10)
     creator_id = fields.BigIntField()
     total_amount = fields.IntField()
-    amount_left = fields.IntField() # Исправление: точный учет остатка
+    amount_left = fields.IntField()
     activations_limit = fields.IntField(default=1)
     activations_current = fields.IntField(default=0)
     mode = fields.CharField(max_length=10, default="fix")
