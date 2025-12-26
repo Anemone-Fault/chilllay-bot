@@ -7,8 +7,8 @@ class SystemMiddleware(BaseMiddleware[Message]):
         # 1. Получаем ID того, кто пишет
         user_id = self.event.from_id
         
-        # Если пишет сообщество (id < 0), игнорируем
-        if user_id < 0:
+        # Если пишет сообщество (id < 0) или странный объект, игнорируем
+        if not user_id or user_id < 0:
             return
 
         # 2. Пробуем получить реальное имя из ВКонтакте
@@ -30,13 +30,13 @@ class SystemMiddleware(BaseMiddleware[Message]):
             }
         )
 
-        # 4. 🔥 АВТО-ОБНОВЛЕНИЕ ИМЕНИ 🔥
-        # Если имя в Базе отличается от реального в ВК - обновляем Базу
+        # 4. Обновляем имя, если изменилось
         if user_db.first_name != first_name or user_db.last_name != last_name:
             user_db.first_name = first_name
             user_db.last_name = last_name
             await user_db.save()
 
-        # 5. Прокидываем юзера дальше в команды
-        self.event.state.peer_id = self.event.peer_id
-        self.event.state.user_db = user_db
+        # 5. 🔥 ИСПРАВЛЕНИЕ 🔥
+        # Вместо event.state мы просто возвращаем словарь.
+        # vkbottle сам передаст "user_db" в аргументы функций handlers.
+        return {"user_db": user_db}
