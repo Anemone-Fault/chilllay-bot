@@ -1,6 +1,7 @@
 from vkbottle.bot import BotLabeler, Message
 from vkbottle import Keyboard, KeyboardButtonColor, Text
 from database.models import User, TransactionLog, Cheque, Promo
+from middleware.system import SystemMiddleware  # <--- ВАЖНЫЙ ИМПОРТ
 from tortoise.transactions import in_transaction
 from datetime import datetime, timezone
 from utils.helpers import get_id_from_mention, generate_cheque_code
@@ -9,24 +10,27 @@ import random
 
 labeler = BotLabeler()
 
+# --- ВАЖНО: Подключаем Middleware к этому файлу ---
+labeler.message_view.register_middleware(SystemMiddleware)
+# -------------------------------------------------
+
 # --- 🎮 ГЛАВНАЯ КЛАВИАТУРА ---
 def get_main_keyboard():
-    # one_time=False — клавиатура не исчезнет
     kb = Keyboard(one_time=False, inline=False)
     
-    # 1 ряд (Основные)
-    kb.add(Text("Профиль"), color=KeyboardButtonColor.PRIMARY) # Синяя
-    kb.add(Text("Баланс"), color=KeyboardButtonColor.SECONDARY) # Белая
+    # 1 ряд
+    kb.add(Text("Профиль"), color=KeyboardButtonColor.PRIMARY)
+    kb.add(Text("Баланс"), color=KeyboardButtonColor.SECONDARY)
     kb.row()
     
-    # 2 ряд (Активности)
-    kb.add(Text("Бонус"), color=KeyboardButtonColor.POSITIVE) # Зеленая
+    # 2 ряд
+    kb.add(Text("Бонус"), color=KeyboardButtonColor.POSITIVE)
     kb.add(Text("Топ"), color=KeyboardButtonColor.PRIMARY)
     kb.row()
     
-    # 3 ряд (Инфо)
+    # 3 ряд
     kb.add(Text("Магазин"), color=KeyboardButtonColor.PRIMARY)
-    kb.add(Text("Помощь"), color=KeyboardButtonColor.NEGATIVE) # Красная
+    kb.add(Text("Помощь"), color=KeyboardButtonColor.NEGATIVE)
     
     return kb.get_json()
 
@@ -40,7 +44,7 @@ async def help_command(message: Message, user_db: User):
         "🔸 Баланс / Деньги\n"
         "🔸 Бонус (раз в 24ч)\n"
         "🔸 Топ игроков\n\n"
-        "💸 ДЕЙСТВИЯ (Команды):\n"
+        "💸 ДЕЙСТВИЯ:\n"
         "🔸 Перевод @user 100\n"
         "🔸 Чек 1000 3\n"
         "🔸 +реп @user / -реп @user\n\n"
@@ -104,7 +108,7 @@ async def daily_bonus(message: Message, user_db: User):
     
     await message.answer(f"🎁 Халява! Ты нафармил {amount} Чилликов.", keyboard=get_main_keyboard())
 
-# --- 💸 ПЕРЕВОДЫ (с сохранением кнопок) ---
+# --- 💸 ПЕРЕВОДЫ ---
 @labeler.message(regex=r"^(?:Перевод|Скинуть|Отправить)\s+(.*?)\s+(\d+)(?:\s+(.*))?$")
 async def transfer(message: Message, match, user_db: User):
     target_raw, amount_str, comment = match[0], match[1], match[2] or "Без комментария"
@@ -212,9 +216,6 @@ async def create_cheque(message: Message, match, user_db: User):
         await TransactionLog.create(user=sender, amount=-amount, description=f"Чек {code}")
 
     type_text = "🎲 Рандомный" if is_random else "💰 Фиксированный"
-    
-    # Тут хитрость: Кнопка "Забрать" прикрепляется К СООБЩЕНИЮ (inline), 
-    # а главное меню остается ВНИЗУ (потому что мы его не убираем).
     kb_inline = Keyboard(inline=True).add(Text("Забрать 🖐", payload={"cmd": "claim", "code": code}), color=KeyboardButtonColor.POSITIVE).get_json()
     
     await message.answer(f"🤑 АТТРАКЦИОН ЩЕДРОСТИ!\n{type_text} чек на {amount} Чилликов!\nМест: {activations}", keyboard=kb_inline)
@@ -256,7 +257,6 @@ async def claim_cheque(message: Message, user_db: User):
         await user_db.save()
         await TransactionLog.create(user=user_db, amount=prize, description=f"Чек {code}")
 
-    # После взятия чека обновляем меню
     await message.answer(f"✅ Урвал кусок!\n+{prize} Чилликов.", keyboard=get_main_keyboard())
 
 @labeler.message(regex=r"^Промо\s+(.*)$")
