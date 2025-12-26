@@ -6,12 +6,10 @@ from tortoise import Tortoise
 
 # Импорты
 from handlers import economy, shop, admin
-from middleware.system import SystemMiddleware
 from settings import VK_GROUP_TOKEN, DATABASE_URL
 
 # Инициализация бота
 bot = Bot(token=VK_GROUP_TOKEN)
-bot.labeler.message_view.register_middleware(SystemMiddleware)
 bot.labeler.load(economy.labeler)
 bot.labeler.load(shop.labeler)
 bot.labeler.load(admin.labeler)
@@ -54,3 +52,4 @@ if __name__ == "__main__":
     
     # 4. Запускаем бота
     bot.run_forever()
+
