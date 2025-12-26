@@ -36,26 +36,31 @@ async def get_user(message: Message) -> User:
 
 # --- 🎮 КЛАВИАТУРА (INLINE) ---
 def get_main_keyboard():
-    # ВАЖНО: inline=True делает кнопки внутри сообщения
+    # inline=True — кнопки прикрепляются к сообщению
     kb = Keyboard(inline=True)
     
-    # 1 ряд
     kb.add(Text("Профиль"), color=KeyboardButtonColor.PRIMARY)
     kb.add(Text("Баланс"), color=KeyboardButtonColor.SECONDARY)
     kb.row()
-    
-    # 2 ряд
     kb.add(Text("Бонус"), color=KeyboardButtonColor.POSITIVE)
     kb.add(Text("Топ"), color=KeyboardButtonColor.PRIMARY)
     kb.row()
-    
-    # 3 ряд
     kb.add(Text("Магазин"), color=KeyboardButtonColor.PRIMARY)
     kb.add(Text("Помощь"), color=KeyboardButtonColor.NEGATIVE)
     
     return kb.get_json()
 
-# --- КОМАНДЫ ---
+# --- 🔥 КОМАНДА ОЧИСТКИ (FIX) 🔥 ---
+@labeler.message(regex=r"^(?i)(?:Fix|Убрать|Скрыть|Очистить)$")
+async def clear_keyboard(message: Message):
+    # Эта команда отправляет get_empty_json(), что удаляет нижнюю клавиатуру
+    await message.answer(
+        "🧹 Старая клавиатура удалена!\nТеперь пользуйся кнопками под сообщениями.", 
+        keyboard=Keyboard().get_empty_json()
+    )
+
+
+# --- ОСТАЛЬНЫЕ КОМАНДЫ ---
 
 @labeler.message(regex=r"^(?i)(?:Помощь|Команды|Меню|Help|Start|Начать)(?:\s.*)?$")
 async def help_command(message: Message):
@@ -72,8 +77,7 @@ async def help_command(message: Message):
         "🔸 Перевод @user 100\n"
         "🔸 Чек 1000 3\n"
         "🔸 +реп @user / -реп @user\n\n"
-        "🛒 МАГАЗИН:\n"
-        "🔸 Нажми кнопку «Магазин»"
+        "🧹 Если мешают старые кнопки внизу — напиши «Fix»"
     )
     
     if message.from_id in ADMIN_IDS:
