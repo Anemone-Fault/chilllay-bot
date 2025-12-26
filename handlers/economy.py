@@ -10,13 +10,10 @@ import random
 labeler = BotLabeler()
 
 # --- 🛠 ПОМОЩНИК: ПОЛУЧЕНИЕ ИГРОКА ---
-# Эта функция заменяет сломанный Middleware.
-# Она находит игрока в БД или создает нового.
 async def get_user(message: Message) -> User:
     user_id = message.from_id
     if user_id > 0:
         try:
-            # Пробуем узнать имя
             users_info = await message.ctx_api.users.get(user_ids=[user_id])
             first_name = users_info[0].first_name
             last_name = users_info[0].last_name
@@ -24,13 +21,11 @@ async def get_user(message: Message) -> User:
             first_name = "Неизвестный"
             last_name = "Странник"
             
-        # Достаем или создаем
         user_db, created = await User.get_or_create(
             vk_id=user_id,
             defaults={ "first_name": first_name, "last_name": last_name }
         )
         
-        # Обновляем имя если сменилось
         if user_db.first_name != first_name or user_db.last_name != last_name:
             user_db.first_name = first_name
             user_db.last_name = last_name
@@ -56,7 +51,7 @@ def get_main_keyboard():
 
 @labeler.message(text=["Помощь", "Команды", "Меню", "Help", "help", "Start", "Начать"])
 async def help_command(message: Message):
-    user_db = await get_user(message) # <--- Сами берем юзера
+    user_db = await get_user(message)
     
     text = (
         "📚 НАВИГАЦИЯ:\n\n"
@@ -84,7 +79,7 @@ async def shop_info(message: Message):
 
 @labeler.message(text=["Профиль", "Статус", "Инфо", "Profile", "Стата"])
 async def profile(message: Message):
-    user_db = await get_user(message) # <--- Сами берем юзера
+    user_db = await get_user(message)
     
     text = (
         f"👤 [id{user_db.vk_id}|{user_db.first_name}]\n"
@@ -96,12 +91,11 @@ async def profile(message: Message):
 
 @labeler.message(text=["Баланс", "Деньги", "Счет", "Бабки", "Money"])
 async def balance(message: Message):
-    user_db = await get_user(message) # <--- Сами берем юзера
+    user_db = await get_user(message)
     await message.answer(f"💰 Твои Чиллики: {user_db.balance}", keyboard=get_main_keyboard())
 
 @labeler.message(text=["Топ", "Рейтинг", "Богачи"])
 async def top_users(message: Message):
-    # Тут юзер не нужен, просто список
     users = await User.filter(is_banned=False).order_by("-balance").limit(10)
     text = "🏆 Топ Чилликов:\n\n"
     for i, u in enumerate(users, 1):
@@ -110,13 +104,14 @@ async def top_users(message: Message):
 
 @labeler.message(text=["Бонус", "Халява", "Bonus"])
 async def daily_bonus(message: Message):
-    user_db = await get_user(message) # <--- Сами берем юзера
+    user_db = await get_user(message)
     
     now = datetime.now(timezone.utc)
     if user_db.last_bonus and (now - user_db.last_bonus).total_seconds() < 86400:
         return await message.answer("🕒 Куда лезешь? Бонус раз в 24 часа.", keyboard=get_main_keyboard())
     
-    amount = random.randint(100, 500)
+    # ИЗМЕНЕНО: От 10 до 100 монет
+    amount = random.randint(10, 100)
     user_db.balance += amount
     user_db.last_bonus = now
     await user_db.save()
@@ -126,7 +121,7 @@ async def daily_bonus(message: Message):
 
 @labeler.message(regex=r"^(?:Перевод|Скинуть|Отправить)\s+(.*?)\s+(\d+)(?:\s+(.*))?$")
 async def transfer(message: Message, match):
-    user_db = await get_user(message) # <--- Сами берем юзера
+    user_db = await get_user(message)
     
     target_raw, amount_str, comment = match[0], match[1], match[2] or "Без комментария"
     amount = int(amount_str)
@@ -164,7 +159,7 @@ async def transfer(message: Message, match):
 
 @labeler.message(regex=r"^\+реп\s+(.*)$")
 async def plus_rep(message: Message, match):
-    user_db = await get_user(message) # <--- Сами берем юзера
+    user_db = await get_user(message)
     
     target_id = get_id_from_mention(match[0])
     cost = 100 
@@ -188,7 +183,7 @@ async def plus_rep(message: Message, match):
 
 @labeler.message(regex=r"^\-реп\s+(.*)$")
 async def minus_rep(message: Message, match):
-    user_db = await get_user(message) # <--- Сами берем юзера
+    user_db = await get_user(message)
 
     target_id = get_id_from_mention(match[0])
     cost = 500
@@ -211,7 +206,7 @@ async def minus_rep(message: Message, match):
 
 @labeler.message(regex=r"^Чек\s+(\d+)(?:\s+(\d+))?(?:\s+(р))?$")
 async def create_cheque(message: Message, match):
-    user_db = await get_user(message) # <--- Сами берем юзера
+    user_db = await get_user(message)
     
     amount = int(match[0])
     activations = int(match[1]) if match[1] else 1
@@ -243,7 +238,7 @@ async def create_cheque(message: Message, match):
 
 @labeler.message(payload_map={"cmd": "claim"})
 async def claim_cheque(message: Message):
-    user_db = await get_user(message) # <--- Сами берем юзера
+    user_db = await get_user(message)
     
     code = message.get_payload_json()["code"]
     
@@ -284,7 +279,7 @@ async def claim_cheque(message: Message):
 
 @labeler.message(regex=r"^Промо\s+(.*)$")
 async def activate_promo(message: Message, match):
-    user_db = await get_user(message) # <--- Сами берем юзера
+    user_db = await get_user(message)
     
     if message.peer_id != message.from_id: return
     code = match[0].strip()
