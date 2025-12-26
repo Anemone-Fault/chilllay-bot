@@ -9,7 +9,7 @@ import random
 
 labeler = BotLabeler()
 
-# --- 🛠 ПОМОЩНИК: ПОЛУЧЕНИЕ ИГРОКА ---
+# --- 🛠 ПОМОЩНИК ---
 async def get_user(message: Message) -> User:
     user_id = message.from_id
     if user_id > 0:
@@ -47,9 +47,13 @@ def get_main_keyboard():
     kb.add(Text("Помощь"), color=KeyboardButtonColor.NEGATIVE)
     return kb.get_json()
 
-# --- КОМАНДЫ ---
+# --- КОМАНДЫ (С ЗАЩИТОЙ ОТ УПОМИНАНИЙ) ---
 
-@labeler.message(text=["Помощь", "Команды", "Меню", "Help", "help", "Start", "Начать"])
+# (?i) - игнор регистра
+# (?:...|...) - варианты слов
+# (?:\s.*)?$ - разрешает любой текст (или упоминание) после команды
+
+@labeler.message(regex=r"^(?i)(?:Помощь|Команды|Меню|Help|Start|Начать)(?:\s.*)?$")
 async def help_command(message: Message):
     user_db = await get_user(message)
     
@@ -69,15 +73,15 @@ async def help_command(message: Message):
     )
     
     if message.from_id in ADMIN_IDS:
-        text += "\n\n👮‍♂ АДМИН: Начислить, Списать, Бан, Рассылка, График, Стоимость."
+        text += "\n\n👮‍♂ АДМИН: Начислить, Списать, Бан, Рассылка, Промокод, Стоимость."
         
     await message.answer(text, keyboard=get_main_keyboard())
 
-@labeler.message(text=["Магазин", "Shop", "Купить"])
+@labeler.message(regex=r"^(?i)(?:Магазин|Shop|Купить)(?:\s.*)?$")
 async def shop_info(message: Message):
     await message.answer("🛒 Чтобы купить что-то, напиши:\n👉 Хочу [товар]", keyboard=get_main_keyboard())
 
-@labeler.message(text=["Профиль", "Статус", "Инфо", "Profile", "Стата"])
+@labeler.message(regex=r"^(?i)(?:Профиль|Статус|Инфо|Profile|Стата)(?:\s.*)?$")
 async def profile(message: Message):
     user_db = await get_user(message)
     
@@ -89,12 +93,12 @@ async def profile(message: Message):
     )
     await message.answer(text, keyboard=get_main_keyboard())
 
-@labeler.message(text=["Баланс", "Деньги", "Счет", "Бабки", "Money"])
+@labeler.message(regex=r"^(?i)(?:Баланс|Деньги|Счет|Бабки|Money)(?:\s.*)?$")
 async def balance(message: Message):
     user_db = await get_user(message)
     await message.answer(f"💰 Твои Чиллики: {user_db.balance}", keyboard=get_main_keyboard())
 
-@labeler.message(text=["Топ", "Рейтинг", "Богачи"])
+@labeler.message(regex=r"^(?i)(?:Топ|Рейтинг|Богачи)(?:\s.*)?$")
 async def top_users(message: Message):
     users = await User.filter(is_banned=False).order_by("-balance").limit(10)
     text = "🏆 Топ Чилликов:\n\n"
@@ -102,7 +106,7 @@ async def top_users(message: Message):
         text += f"{i}. [id{u.vk_id}|{u.first_name}] — {u.balance} ({u.get_rank()})\n"
     await message.answer(text, keyboard=get_main_keyboard())
 
-@labeler.message(text=["Бонус", "Халява", "Bonus"])
+@labeler.message(regex=r"^(?i)(?:Бонус|Халява|Bonus)(?:\s.*)?$")
 async def daily_bonus(message: Message):
     user_db = await get_user(message)
     
@@ -110,7 +114,6 @@ async def daily_bonus(message: Message):
     if user_db.last_bonus and (now - user_db.last_bonus).total_seconds() < 86400:
         return await message.answer("🕒 Куда лезешь? Бонус раз в 24 часа.", keyboard=get_main_keyboard())
     
-    # ИЗМЕНЕНО: От 10 до 100 монет
     amount = random.randint(10, 100)
     user_db.balance += amount
     user_db.last_bonus = now
@@ -119,7 +122,7 @@ async def daily_bonus(message: Message):
     
     await message.answer(f"🎁 Халява! Ты нафармил {amount} Чилликов.", keyboard=get_main_keyboard())
 
-@labeler.message(regex=r"^(?:Перевод|Скинуть|Отправить)\s+(.*?)\s+(\d+)(?:\s+(.*))?$")
+@labeler.message(regex=r"^(?i)(?:Перевод|Скинуть|Отправить)\s+(.*?)\s+(\d+)(?:\s+(.*))?$")
 async def transfer(message: Message, match):
     user_db = await get_user(message)
     
@@ -204,7 +207,7 @@ async def minus_rep(message: Message, match):
 
     await message.answer(f"💦 Харкнул в профиль.", keyboard=get_main_keyboard())
 
-@labeler.message(regex=r"^Чек\s+(\d+)(?:\s+(\d+))?(?:\s+(р))?$")
+@labeler.message(regex=r"^(?i)Чек\s+(\d+)(?:\s+(\d+))?(?:\s+(р))?$")
 async def create_cheque(message: Message, match):
     user_db = await get_user(message)
     
@@ -239,7 +242,6 @@ async def create_cheque(message: Message, match):
 @labeler.message(payload_map={"cmd": "claim"})
 async def claim_cheque(message: Message):
     user_db = await get_user(message)
-    
     code = message.get_payload_json()["code"]
     
     async with in_transaction():
@@ -277,7 +279,7 @@ async def claim_cheque(message: Message):
 
     await message.answer(f"✅ Урвал кусок!\n+{prize} Чилликов.", keyboard=get_main_keyboard())
 
-@labeler.message(regex=r"^Промо\s+(.*)$")
+@labeler.message(regex=r"^(?i)Промо\s+(.*)$")
 async def activate_promo(message: Message, match):
     user_db = await get_user(message)
     
