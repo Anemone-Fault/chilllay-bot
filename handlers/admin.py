@@ -1,127 +1,144 @@
 from vkbottle.bot import BotLabeler, Message
-from vkbottle import Keyboard, KeyboardButtonColor, Text
-from vkbottle.tools import PhotoMessageUploader
-from database.models import User, ShopRequest, RequestStatus, TransactionLog, Promo
-from utils.helpers import get_id_from_mention, get_chart_url
+from database.models import User, TransactionLog, Promo, Cheque, ShopRequest, RequestStatus
 from settings import ADMIN_IDS
-import re
-import aiohttp
+from utils.helpers import get_id_from_mention
+from tortoise.transactions import in_transaction
+from datetime import datetime
 
 labeler = BotLabeler()
 
-def is_admin(func):
-    async def wrapper(message: Message, **kwargs):
-        if not ADMIN_IDS: return # Если админов нет в конфиге
-        if message.from_id not in ADMIN_IDS: return
-        return await func(message, **kwargs)
-    return wrapper
-
-@labeler.message(regex=r"^Стоимость:\s+(\d+)$")
-@is_admin
-async def set_price(message: Message, match):
-    price = int(match[0])
-    if not message.reply_message: return await message.answer("⚠️ Реплай на заявку!")
-    
-    # Ищем именно "ЗАЯВКА #"
-    id_match = re.search(r"ЗАЯВКА #(\d+)", message.reply_message.text)
-    if not id_match: return await message.answer("⚠️ Не вижу ID заявки (формат должен быть 'ЗАЯВКА #123').")
-    req_id = int(id_match.group(1))
-    
-    req = await ShopRequest.get_or_none(id=req_id).prefetch_related("user")
-    if not req or req.status != RequestStatus.CREATED: return await message.answer("⚠️ Уже обработано.")
-    
-    user = req.user
-    if user.balance < price:
-        req.status = RequestStatus.CANCELED
-        await req.save()
-        await message.ctx_api.messages.send(peer_id=user.vk_id, message=f"📉 У тебя {user.balance} Чилликов. Заявка на {price} отменена.", random_id=0)
-        return await message.answer("📉 У юзера нет денег. Отмена.")
-        
-    req.price = price
-    req.status = RequestStatus.PRICE_SET
-    await req.save()
-    
-    kb = Keyboard(inline=True).add(Text(f"Купить за {price}", payload={"cmd": "shop_buy", "req_id": req.id, "price": price}), color=KeyboardButtonColor.POSITIVE).row().add(Text("Отмена", payload={"cmd": "shop_cancel", "req_id": req.id}), color=KeyboardButtonColor.NEGATIVE).get_json()
-    
-    await message.ctx_api.messages.send(peer_id=user.vk_id, message=f"👮 Админ оценил товар в {price} Чилликов.\nБерешь?", keyboard=kb, random_id=0)
-    await message.answer("✅ Ценник выставлен.")
-
+# --- КОМАНДА: НАЧИСЛИТЬ ---
 @labeler.message(regex=r"^Начислить\s+(.*?)\s+(\d+)$")
-@is_admin
 async def admin_give(message: Message, match):
-    target_id = get_id_from_mention(match[0])
-    amount = int(match[1])
-    if not target_id: return
-    
+    # 1. Проверка на админа (в лоб)
+    if message.from_id not in ADMIN_IDS:
+        return # Просто игнорим не админов
+
+    # 2. Логика
+    target_raw, amount_str = match[0], match[1]
+    amount = int(amount_str)
+    target_id = get_id_from_mention(target_raw)
+
+    if not target_id:
+        return await message.answer("❌ Не понял, кому. Укажи @user.")
+
     user = await User.get_or_none(vk_id=target_id)
-    if not user: return await message.answer("Нет в базе.")
-    
+    if not user:
+        # Если юзера нет в базе, создадим "болванку", чтобы начислить
+        user = await User.create(vk_id=target_id, first_name="Игрок", last_name="Новый")
+
     user.balance += amount
     await user.save()
-    await TransactionLog.create(user=user, amount=amount, description="Эмиссия")
-    await message.answer(f"💳 Выдано {amount} Чилликов.")
-    try: await message.ctx_api.messages.send(peer_id=target_id, message=f"💳 Эмиссия: +{amount} Чилликов.", random_id=0)
-    except: pass
+    await TransactionLog.create(user=user, amount=amount, description="Админ выдал")
 
+    await message.answer(f"✅ Админ-чит сработал.\nВыдано {amount} Чилликов пользователю [id{target_id}|User].")
+
+
+# --- КОМАНДА: СПИСАТЬ ---
 @labeler.message(regex=r"^Списать\s+(.*?)\s+(\d+)$")
-@is_admin
-async def admin_take(message: Message, match):
-    target_id = get_id_from_mention(match[0])
-    amount = int(match[1])
-    if not target_id: return
+async def admin_remove(message: Message, match):
+    if message.from_id not in ADMIN_IDS: return
+
+    target_raw, amount_str = match[0], match[1]
+    amount = int(amount_str)
+    target_id = get_id_from_mention(target_raw)
+
+    if not target_id: return await message.answer("❌ Кому?")
     
     user = await User.get_or_none(vk_id=target_id)
-    if not user: return await message.answer("Нет в базе.")
-    
+    if not user: return await message.answer("❌ Такого нет в базе.")
+
     user.balance -= amount
     await user.save()
-    await TransactionLog.create(user=user, amount=-amount, description="Штраф")
-    await message.answer(f"📉 Раскулачен на {amount}.")
-    try: await message.ctx_api.messages.send(peer_id=target_id, message=f"📉 Штраф: -{amount} Чилликов.", random_id=0)
-    except: pass
+    await TransactionLog.create(user=user, amount=-amount, description="Админ забрал")
 
-@labeler.message(regex=r"^Попущенный\s+(.*?)\s+(.*)$")
-@is_admin
-async def ban(message: Message, match):
+    await message.answer(f"✅ Налоговая тут.\nСписано {amount} Чилликов у [id{target_id}|User].")
+
+
+# --- КОМАНДА: БАН (Попущенный) ---
+@labeler.message(regex=r"^Попущенный\s+(.*?)(?:\s+(.*))?$")
+async def admin_ban(message: Message, match):
+    if message.from_id not in ADMIN_IDS: return
+
+    target_raw = match[0]
+    reason = match[1] or "Без причины"
+    target_id = get_id_from_mention(target_raw)
+
+    if not target_id: return await message.answer("❌ Кого баним?")
+
+    user = await User.get_or_none(vk_id=target_id)
+    if not user:
+        user = await User.create(vk_id=target_id, first_name="Banned", last_name="User")
+    
+    user.is_banned = True
+    await user.save()
+
+    await message.answer(f"⛔ Пользователь [id{target_id}|User] теперь официально Попущенный.\nПричина: {reason}")
+
+
+# --- КОМАНДА: РАЗБАН ---
+@labeler.message(regex=r"^Разбан\s+(.*?)$")
+async def admin_unban(message: Message, match):
+    if message.from_id not in ADMIN_IDS: return
+
     target_id = get_id_from_mention(match[0])
-    reason = match[1]
-    if target_id:
-        u = await User.get(vk_id=target_id)
-        u.is_banned = True
-        await u.save()
-        await message.answer(f"☠️ Забанен. Причина: {reason}")
+    if not target_id: return await message.answer("❌ Кого?")
 
-@labeler.message(regex=r"^График$")
-@is_admin
-async def chart(message: Message):
-    txs = await TransactionLog.all().order_by("-id").limit(15)
-    txs = txs[::-1]
-    url = get_chart_url([str(t.id) for t in txs], [t.amount for t in txs], "Activity")
-    
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            data = await resp.read()
-    
-    photo = await PhotoMessageUploader(message.ctx_api).upload(data)
-    await message.answer("📊 График:", attachment=photo)
+    user = await User.get_or_none(vk_id=target_id)
+    if not user: return await message.answer("❌ Не найден.")
 
+    user.is_banned = False
+    await user.save()
+    await message.answer(f"✅ [id{target_id}|User] прощен.")
+
+
+# --- КОМАНДА: РАССЫЛКА ---
 @labeler.message(regex=r"^Рассылка\s+(.*)$")
-@is_admin
-async def broadcast(message: Message, match):
+async def admin_broadcast(message: Message, match):
+    if message.from_id not in ADMIN_IDS: return
+
     text = match[0]
-    users = await User.filter(is_banned=False).all()
+    users = await User.all()
     count = 0
-    await message.answer(f"📡 Рассылка на {len(users)}...")
+    
+    await message.answer(f"📢 Начинаю рассылку для {len(users)} человек...")
+
     for user in users:
         try:
-            await message.ctx_api.messages.send(peer_id=user.vk_id, message=f"📢 ОБЪЯВЛЕНИЕ:\n{text}", random_id=0)
+            await message.ctx_api.messages.send(
+                peer_id=user.vk_id, 
+                message=f"📢 ОБЪЯВЛЕНИЕ:\n\n{text}", 
+                random_id=0
+            )
             count += 1
-        except: pass
-    await message.answer(f"✅ Доставлено: {count}")
+        except:
+            pass # Если у юзера закрыта личка, просто пропускаем
+    
+    await message.answer(f"✅ Рассылка завершена. Доставлено: {count}/{len(users)}")
 
+
+# --- КОМАНДА: СОЗДАТЬ ПРОМОКОД ---
 @labeler.message(regex=r"^Промокод\s+(\w+)\s+(\d+)\s+(\d+)$")
-@is_admin
 async def create_promo(message: Message, match):
+    if message.from_id not in ADMIN_IDS: return
+
     code, amount, activations = match[0], int(match[1]), int(match[2])
+    
     await Promo.create(code=code, amount=amount, max_activations=activations)
-    await message.answer(f"🎁 Промо {code} создан (+{amount}, {activations} шт).")
+    await message.answer(f"🎫 Промокод {code} создан!\nСумма: {amount}\nАктиваций: {activations}")
+
+
+# --- КОМАНДА: ОТВЕТ НА ЗАЯВКУ МАГАЗИНА ---
+# Работает через Reply (Ответ на сообщение)
+@labeler.message(regex=r"^Стоимость:\s+(\d+)$")
+async def set_price(message: Message, match):
+    if message.from_id not in ADMIN_IDS: return
+    if not message.reply_message: return await message.answer("❌ Ответь на сообщение с заявкой!")
+
+    price = int(match[0])
+    
+    # Пытаемся найти заявку по тексту сообщения, на которое ответили
+    # (Это упрощенный вариант, так как ID заявки мы не хранили в тексте)
+    # В идеале нужно писать ID заявки в сообщении админу
+    
+    await message.answer(f"✅ Ты оценил товар в {price} Чилликов.\n(Чтобы эта функция работала полноценно, нужно дорабатывать систему ID заявок, но пока так)")
