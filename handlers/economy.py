@@ -4,9 +4,46 @@ from database.models import User, TransactionLog, Cheque, Promo
 from tortoise.transactions import in_transaction
 from datetime import datetime, timezone
 from utils.helpers import get_id_from_mention, generate_cheque_code
+from settings import ADMIN_IDS
 import random
 
 labeler = BotLabeler()
+
+@labeler.message(text=["Помощь", "Команды", "Меню", "Help", "help"])
+async def help_command(message: Message, user_db: User):
+    text = (
+        "📚 СПИСОК КОМАНД:\n\n"
+        "👤 ЛИЧНОЕ:\n"
+        "🔸 Профиль — Статистика и ранг\n"
+        "🔸 Баланс — Твой кошелек\n"
+        "🔸 Бонус — Ежедневная халява\n"
+        "🔸 Топ — Список богачей\n\n"
+        "💸 ФИНАНСЫ:\n"
+        "🔸 Перевод @user 100 [коммент] — Передать деньги\n"
+        "🔸 Чек 1000 3 — Создать мешок на 1000 монет для 3 человек\n"
+        "🔸 Чек 1000 3 р — Рандомный чек\n\n"
+        "🤝 РЕСПЕКТЫ:\n"
+        "🔸 +реп @user — Уважение (100 монет)\n"
+        "🔸 -реп @user — Осуждение (500 монет)\n\n"
+        "🛒 МАГАЗИН:\n"
+        "🔸 Хочу [название] — Заявка на покупку\n"
+        "🔸 Промо [код] — Активация промокода"
+    )
+    
+    # Скрытые команды только для админов
+    if message.from_id in ADMIN_IDS:
+        text += (
+            "\n\n👮‍♂ АДМИН-ПАНЕЛЬ:\n"
+            "🔹 Начислить @user 1000\n"
+            "🔹 Списать @user 1000\n"
+            "🔹 Попущенный @user [причина] — Бан\n"
+            "🔹 Рассылка [текст]\n"
+            "🔹 Промокод [код] [сумма] [кол-во]\n"
+            "🔹 График — Статистика\n"
+            "🔹 Стоимость: 100 (Реплай на заявку)"
+        )
+        
+    await message.answer(text)
 
 @labeler.message(text="Баланс")
 async def balance(message: Message, user_db: User):
@@ -141,7 +178,6 @@ async def create_cheque(message: Message, match, user_db: User):
         sender.balance -= amount
         await sender.save()
         
-        # Исправление: заполняем amount_left
         await Cheque.create(
             code=code, creator_id=user_db.vk_id, 
             total_amount=amount, amount_left=amount,
