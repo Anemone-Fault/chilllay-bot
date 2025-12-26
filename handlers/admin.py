@@ -8,14 +8,16 @@ import re
 
 labeler = BotLabeler()
 
-# --- 🔥 НОВАЯ ФУНКЦИЯ: АВТО-ОБНОВЛЕНИЕ КАРТОЧКИ ---
+# --- 🔥 ФУНКЦИЯ: АВТО-ОБНОВЛЕНИЕ КАРТОЧКИ ---
 async def auto_update_card(api, user_db):
     if not user_db.card_photo_id: return
     try:
         new_desc = f"✦ ДОСЬЕ ИГРОКА ✦\n\n👤 Имя: {user_db.first_name}\n☢ Ранг: {user_db.get_rank()}\n💰 Баланс: {user_db.balance} чилликов\n\nОбновлено: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+        # Разбиваем ID фото (например -12345_67890) на части
         owner_id, photo_id = user_db.card_photo_id.split('_')
         await api.photos.edit(owner_id=int(owner_id), photo_id=int(photo_id), caption=new_desc)
-    except: pass
+    except Exception as e:
+        print(f"Ошибка обновления карточки: {e}")
 
 # --- ПОМОЩНИК: ПОЛУЧЕНИЕ ИМЕНИ ---
 async def get_name(message: Message, user_id: int) -> str:
@@ -80,6 +82,53 @@ async def admin_remove(message: Message, match):
     await TransactionLog.create(user=user, amount=-amount, description="Админ забрал")
 
     await message.answer(f"✅ Налоговая тут.\nСписано {amount} Чилликов у [id{target_id}|{name}].")
+
+# --- 🔥 КОМАНДА: СВЯЗАТЬ КАРТОЧКУ (ВСЕЯДНАЯ ВЕРСИЯ) 🔥 ---
+@labeler.message(regex=r"^(?i)Связать\s+(.*)$")
+async def link_card(message: Message, match):
+    if message.from_id not in ADMIN_IDS: return
+
+    # Берем весь текст после команды
+    full_text = match[0] 
+
+    # 1. Ищем ID фото в любой части текста (даже в ссылках с ?z=...)
+    # Регулярка ищет "photo" потом числа, потом "_" и снова числа
+    photo_match = re.search(r"photo(-?\d+_\d+)", full_text)
+    
+    if not photo_match:
+        return await message.answer("❌ Не вижу ссылку на фото. В ссылке должно быть 'photo-XXX_YYY'.")
+    
+    full_photo_id = photo_match.group(1) # Например: -224755876_457239447
+
+    # 2. Ищем пользователя (перебираем слова)
+    target_id = None
+    for word in full_text.split():
+        uid = get_id_from_mention(word)
+        if uid:
+            target_id = uid
+            break
+    
+    if not target_id:
+        return await message.answer("❌ Ссылку вижу, а пользователя — нет. Отметь его через @ или [id|name].")
+
+    # --- ЛОГИКА ---
+    user = await User.get_or_none(vk_id=target_id)
+    if not user:
+        name = await get_name(message, target_id)
+        user = await User.create(vk_id=target_id, first_name=name, last_name="Player")
+    
+    user.card_photo_id = full_photo_id
+    await user.save()
+    
+    # Пробуем обновить сразу
+    status_msg = ""
+    try:
+        await auto_update_card(message.ctx_api, user)
+        status_msg = "\n✅ Данные на картинке обновлены прямо сейчас!"
+    except Exception as e:
+        status_msg = f"\n⚠ Карточка привязана, но авто-обновление не сработало. Бот админ в этой группе? Ошибка: {e}"
+    
+    await message.answer(f"🔗 Успешно!\nИгрок: [id{target_id}|ID{target_id}]\nФото ID: {full_photo_id}{status_msg}")
 
 # --- КОМАНДА: БАН ---
 @labeler.message(regex=r"^(?i)Попущенный\s+(.*?)(?:\s+(.*))?$")
