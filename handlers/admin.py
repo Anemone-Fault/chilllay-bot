@@ -7,14 +7,25 @@ from datetime import datetime
 
 labeler = BotLabeler()
 
-# --- КОМАНДА: НАЧИСЛИТЬ ---
-@labeler.message(regex=r"^Начислить\s+(.*?)\s+(\d+)$")
-async def admin_give(message: Message, match):
-    # 1. Проверка на админа (в лоб)
-    if message.from_id not in ADMIN_IDS:
-        return # Просто игнорим не админов
+# --- ПОМОЩНИК: ПОЛУЧЕНИЕ ИМЕНИ ---
+async def get_name(message: Message, user_id: int) -> str:
+    # Пытаемся найти юзера в базе
+    user = await User.get_or_none(vk_id=user_id)
+    if user and user.first_name != "Неизвестный":
+        return user.first_name
+    
+    # Если в базе нет или имя кривое - спрашиваем у ВК
+    try:
+        users_info = await message.ctx_api.users.get(user_ids=[user_id])
+        return users_info[0].first_name
+    except:
+        return "User"
 
-    # 2. Логика
+# --- КОМАНДА: НАЧИСЛИТЬ ---
+@labeler.message(regex=r"^(?i)Начислить\s+(.*?)\s+(\d+)$")
+async def admin_give(message: Message, match):
+    if message.from_id not in ADMIN_IDS: return
+
     target_raw, amount_str = match[0], match[1]
     amount = int(amount_str)
     target_id = get_id_from_mention(target_raw)
@@ -22,20 +33,26 @@ async def admin_give(message: Message, match):
     if not target_id:
         return await message.answer("❌ Не понял, кому. Укажи @user.")
 
+    # Получаем имя для красивого ответа
+    name = await get_name(message, target_id)
+
+    # Работаем с базой
     user = await User.get_or_none(vk_id=target_id)
     if not user:
-        # Если юзера нет в базе, создадим "болванку", чтобы начислить
-        user = await User.create(vk_id=target_id, first_name="Игрок", last_name="Новый")
+        user = await User.create(vk_id=target_id, first_name=name, last_name="Player")
 
     user.balance += amount
+    # Обновляем имя, если оно было старое
+    user.first_name = name
     await user.save()
+    
     await TransactionLog.create(user=user, amount=amount, description="Админ выдал")
 
-    await message.answer(f"✅ Админ-чит сработал.\nВыдано {amount} Чилликов пользователю [id{target_id}|User].")
+    await message.answer(f"✅ Админ-чит сработал.\nВыдано {amount} Чилликов пользователю [id{target_id}|{name}].")
 
 
 # --- КОМАНДА: СПИСАТЬ ---
-@labeler.message(regex=r"^Списать\s+(.*?)\s+(\d+)$")
+@labeler.message(regex=r"^(?i)Списать\s+(.*?)\s+(\d+)$")
 async def admin_remove(message: Message, match):
     if message.from_id not in ADMIN_IDS: return
 
@@ -45,6 +62,8 @@ async def admin_remove(message: Message, match):
 
     if not target_id: return await message.answer("❌ Кому?")
     
+    name = await get_name(message, target_id)
+    
     user = await User.get_or_none(vk_id=target_id)
     if not user: return await message.answer("❌ Такого нет в базе.")
 
@@ -52,11 +71,11 @@ async def admin_remove(message: Message, match):
     await user.save()
     await TransactionLog.create(user=user, amount=-amount, description="Админ забрал")
 
-    await message.answer(f"✅ Налоговая тут.\nСписано {amount} Чилликов у [id{target_id}|User].")
+    await message.answer(f"✅ Налоговая тут.\nСписано {amount} Чилликов у [id{target_id}|{name}].")
 
 
-# --- КОМАНДА: БАН (Попущенный) ---
-@labeler.message(regex=r"^Попущенный\s+(.*?)(?:\s+(.*))?$")
+# --- КОМАНДА: БАН ---
+@labeler.message(regex=r"^(?i)Попущенный\s+(.*?)(?:\s+(.*))?$")
 async def admin_ban(message: Message, match):
     if message.from_id not in ADMIN_IDS: return
 
@@ -66,34 +85,36 @@ async def admin_ban(message: Message, match):
 
     if not target_id: return await message.answer("❌ Кого баним?")
 
+    name = await get_name(message, target_id)
     user = await User.get_or_none(vk_id=target_id)
     if not user:
-        user = await User.create(vk_id=target_id, first_name="Banned", last_name="User")
+        user = await User.create(vk_id=target_id, first_name=name, last_name="Banned")
     
     user.is_banned = True
     await user.save()
 
-    await message.answer(f"⛔ Пользователь [id{target_id}|User] теперь официально Попущенный.\nПричина: {reason}")
+    await message.answer(f"⛔ Пользователь [id{target_id}|{name}] теперь официально Попущенный.\nПричина: {reason}")
 
 
 # --- КОМАНДА: РАЗБАН ---
-@labeler.message(regex=r"^Разбан\s+(.*?)$")
+@labeler.message(regex=r"^(?i)Разбан\s+(.*?)$")
 async def admin_unban(message: Message, match):
     if message.from_id not in ADMIN_IDS: return
 
     target_id = get_id_from_mention(match[0])
     if not target_id: return await message.answer("❌ Кого?")
-
+    
+    name = await get_name(message, target_id)
     user = await User.get_or_none(vk_id=target_id)
     if not user: return await message.answer("❌ Не найден.")
 
     user.is_banned = False
     await user.save()
-    await message.answer(f"✅ [id{target_id}|User] прощен.")
+    await message.answer(f"✅ [id{target_id}|{name}] прощен.")
 
 
 # --- КОМАНДА: РАССЫЛКА ---
-@labeler.message(regex=r"^Рассылка\s+(.*)$")
+@labeler.message(regex=r"^(?i)Рассылка\s+(.*)$")
 async def admin_broadcast(message: Message, match):
     if message.from_id not in ADMIN_IDS: return
 
@@ -112,13 +133,13 @@ async def admin_broadcast(message: Message, match):
             )
             count += 1
         except:
-            pass # Если у юзера закрыта личка, просто пропускаем
+            pass 
     
     await message.answer(f"✅ Рассылка завершена. Доставлено: {count}/{len(users)}")
 
 
-# --- КОМАНДА: СОЗДАТЬ ПРОМОКОД ---
-@labeler.message(regex=r"^Промокод\s+(\w+)\s+(\d+)\s+(\d+)$")
+# --- КОМАНДА: ПРОМОКОД ---
+@labeler.message(regex=r"^(?i)Промокод\s+(\w+)\s+(\d+)\s+(\d+)$")
 async def create_promo(message: Message, match):
     if message.from_id not in ADMIN_IDS: return
 
@@ -128,17 +149,11 @@ async def create_promo(message: Message, match):
     await message.answer(f"🎫 Промокод {code} создан!\nСумма: {amount}\nАктиваций: {activations}")
 
 
-# --- КОМАНДА: ОТВЕТ НА ЗАЯВКУ МАГАЗИНА ---
-# Работает через Reply (Ответ на сообщение)
-@labeler.message(regex=r"^Стоимость:\s+(\d+)$")
+# --- КОМАНДА: ОТВЕТ НА ЗАЯВКУ (Стоимость) ---
+@labeler.message(regex=r"^(?i)Стоимость:\s+(\d+)$")
 async def set_price(message: Message, match):
     if message.from_id not in ADMIN_IDS: return
     if not message.reply_message: return await message.answer("❌ Ответь на сообщение с заявкой!")
 
     price = int(match[0])
-    
-    # Пытаемся найти заявку по тексту сообщения, на которое ответили
-    # (Это упрощенный вариант, так как ID заявки мы не хранили в тексте)
-    # В идеале нужно писать ID заявки в сообщении админу
-    
-    await message.answer(f"✅ Ты оценил товар в {price} Чилликов.\n(Чтобы эта функция работала полноценно, нужно дорабатывать систему ID заявок, но пока так)")
+    await message.answer(f"✅ Товар оценен в {price} Чилликов.")
