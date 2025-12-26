@@ -5,7 +5,7 @@ from vkbottle import Bot
 from tortoise import Tortoise
 
 from handlers import economy, shop, admin
-from middlewares.system import SystemMiddleware
+from middleware.system import SystemMiddleware
 from settings import VK_GROUP_TOKEN, DATABASE_URL
 
 bot = Bot(token=VK_GROUP_TOKEN)
@@ -38,4 +38,5 @@ async def main():
     await bot.run_polling()
 
 if __name__ == "__main__":
+
     asyncio.run(main())
