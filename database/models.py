@@ -11,7 +11,7 @@ class User(models.Model):
     vk_id = fields.BigIntField(pk=True)
     first_name = fields.CharField(max_length=255)
     last_name = fields.CharField(max_length=255)
-    balance = fields.IntField(default=1000) # Стартовый баланс (1000 монет)
+    balance = fields.IntField(default=100) # Стартовый баланс (1000 монет)
     karma = fields.IntField(default=0)
     is_admin = fields.BooleanField(default=False)
     is_banned = fields.BooleanField(default=False)
@@ -69,3 +69,4 @@ class Promo(models.Model):
     max_activations = fields.IntField()
     current_activations = fields.IntField(default=0)
     users_activated = fields.JSONField(default=list)
+
