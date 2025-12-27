@@ -8,12 +8,13 @@ import re
 
 labeler = BotLabeler()
 
-# --- 🔥 ФУНКЦИЯ: УМНЫЙ КОММЕНТАРИЙ (С параметром from_group) ---
+# --- 🔥 ФУНКЦИЯ: ОБНОВЛЕНИЕ КАРТОЧКИ (Через описание фото) ---
 async def auto_update_card(api, user_db, debug_message: Message = None):
     if not user_db.card_photo_id: 
         if debug_message: await debug_message.answer("❌ В базе нет ID фото.")
         return
 
+    # Текст, который будет в ОПИСАНИИ фото
     dossier_text = (
         f"✦ ДОСЬЕ ИГРОКА ✦\n"
         f"━━━━━━━━━━━━━━━\n"
@@ -28,38 +29,26 @@ async def auto_update_card(api, user_db, debug_message: Message = None):
         # Парсим ID: "-123_456" -> owner_id=-123, photo_id=456
         owner_id, photo_id = map(int, user_db.card_photo_id.split('_'))
 
-        # ВАРИАНТ 1: Редактируем старый (если есть ID в базе)
-        if user_db.card_comment_id:
-            try:
-                await api.photos.edit_comment(
-                    owner_id=owner_id,
-                    comment_id=user_db.card_comment_id,
-                    message=dossier_text
-                )
-                print(f"✅ Комментарий {user_db.card_comment_id} обновлен.", flush=True)
-                if debug_message: await debug_message.answer(f"✅ Обновлен комментарий ID {user_db.card_comment_id}")
-                return 
-            except VKAPIError as e:
-                print(f"⚠ Не вышло отредактировать (Код {e.code}). Создаю новый...", flush=True)
-
-        # ВАРИАНТ 2: Создаем новый (если старого нет или он удален)
-        new_comment_id = await api.photos.create_comment(
+        # Проверка: Если фото группы, owner_id должен быть отрицательным
+        # Метод photos.edit идеально работает для фоток группы
+        await api.photos.edit(
             owner_id=owner_id,
             photo_id=photo_id,
-            message=dossier_text,
-            from_group=1  # <--- 🔥 ВОТ ЭТО ВАЖНАЯ ДОБАВКА! Пишем от имени группы.
+            caption=dossier_text
         )
-        
-        user_db.card_comment_id = new_comment_id
-        await user_db.save()
-        
-        print(f"🆕 Создан комментарий ID {new_comment_id}", flush=True)
-        if debug_message: await debug_message.answer(f"✅ Создан НОВЫЙ комментарий ID {new_comment_id}")
+
+        print(f"✅ Описание фото {photo_id} обновлено.", flush=True)
+        if debug_message: await debug_message.answer(f"✅ Карточка обновлена (изменено описание).")
 
     except VKAPIError as e:
-        err_text = f"🔥 Ошибка ВК (Код {e.code}): {e.description}"
+        # ИСПРАВЛЕНИЕ: Используем .error_msg вместо .description
+        err_msg = getattr(e, "error_msg", str(e))
+        err_text = f"🔥 Ошибка ВК (Код {e.code}): {err_msg}"
         print(err_text, flush=True)
-        if debug_message: await debug_message.answer(f"❌ {err_text}")
+        
+        if debug_message: 
+            await debug_message.answer(f"❌ {err_text}")
+            
     except Exception as e:
         err_text = f"🔥 Системная ошибка: {e}"
         print(err_text, flush=True)
@@ -150,10 +139,11 @@ async def link_card(message: Message, match):
         user = await User.create(vk_id=target_id, first_name=name, last_name="Player")
     
     user.card_photo_id = full_photo_id
+    # card_comment_id больше не нужен, так как мы редактируем само фото
     user.card_comment_id = None 
     await user.save()
     
-    await message.answer(f"🔗 Связано! Пробую оставить комментарий...")
+    await message.answer(f"🔗 Связано! Обновляю описание...")
     await auto_update_card(message.ctx_api, user, debug_message=message)
 
 # --- ОСТАЛЬНОЕ ---
