@@ -5,15 +5,13 @@ from settings import ADMIN_IDS
 from utils.helpers import get_id_from_mention
 from datetime import datetime
 import re
-import sys
 
 labeler = BotLabeler()
 
-# --- 🔥 ФУНКЦИЯ: УМНЫЙ КОММЕНТАРИЙ ---
-# Добавил debug_message, чтобы бот мог жаловаться в чат, если что-то не так
+# --- 🔥 ФУНКЦИЯ: УМНЫЙ КОММЕНТАРИЙ (С параметром from_group) ---
 async def auto_update_card(api, user_db, debug_message: Message = None):
     if not user_db.card_photo_id: 
-        if debug_message: await debug_message.answer("❌ В базе нет привязанного ID фото.")
+        if debug_message: await debug_message.answer("❌ В базе нет ID фото.")
         return
 
     dossier_text = (
@@ -27,11 +25,10 @@ async def auto_update_card(api, user_db, debug_message: Message = None):
     )
 
     try:
-        # Парсим ID
-        # Если ссылка была photo-123_456, то owner_id=-123, photo_id=456
+        # Парсим ID: "-123_456" -> owner_id=-123, photo_id=456
         owner_id, photo_id = map(int, user_db.card_photo_id.split('_'))
 
-        # ВАРИАНТ 1: Редактируем существующий
+        # ВАРИАНТ 1: Редактируем старый (если есть ID в базе)
         if user_db.card_comment_id:
             try:
                 await api.photos.edit_comment(
@@ -40,30 +37,29 @@ async def auto_update_card(api, user_db, debug_message: Message = None):
                     message=dossier_text
                 )
                 print(f"✅ Комментарий {user_db.card_comment_id} обновлен.", flush=True)
-                if debug_message: await debug_message.answer(f"✅ Успешно обновлен комментарий ID {user_db.card_comment_id}")
+                if debug_message: await debug_message.answer(f"✅ Обновлен комментарий ID {user_db.card_comment_id}")
                 return 
             except VKAPIError as e:
-                # Код 100 = Один из параметров неверен (часто бывает, если коммент удален)
-                # Код 15 = Доступ запрещен
-                print(f"⚠ Ошибка редактирования (код {e.code}): {e}", flush=True)
-                if debug_message: await debug_message.answer(f"⚠ Не вышло отредактировать старый (Код {e.code}). Пробую создать новый...")
+                print(f"⚠ Не вышло отредактировать (Код {e.code}). Создаю новый...", flush=True)
 
-        # ВАРИАНТ 2: Создаем новый
+        # ВАРИАНТ 2: Создаем новый (если старого нет или он удален)
         new_comment_id = await api.photos.create_comment(
             owner_id=owner_id,
             photo_id=photo_id,
-            message=dossier_text
+            message=dossier_text,
+            from_group=1  # <--- 🔥 ВОТ ЭТО ВАЖНАЯ ДОБАВКА! Пишем от имени группы.
         )
         
         user_db.card_comment_id = new_comment_id
         await user_db.save()
-        print(f"🆕 Создан новый комментарий ID {new_comment_id}", flush=True)
+        
+        print(f"🆕 Создан комментарий ID {new_comment_id}", flush=True)
         if debug_message: await debug_message.answer(f"✅ Создан НОВЫЙ комментарий ID {new_comment_id}")
 
     except VKAPIError as e:
         err_text = f"🔥 Ошибка ВК (Код {e.code}): {e.description}"
         print(err_text, flush=True)
-        if debug_message: await debug_message.answer(f"❌ {err_text}\n\n💡 Совет: Проверь, включены ли комментарии в настройках группы и альбома!")
+        if debug_message: await debug_message.answer(f"❌ {err_text}")
     except Exception as e:
         err_text = f"🔥 Системная ошибка: {e}"
         print(err_text, flush=True)
@@ -81,19 +77,14 @@ async def get_name(message: Message, user_id: int) -> str:
     except:
         return "User"
 
-# --- 🔥 НОВАЯ КОМАНДА: ТЕСТ КАРТОЧКИ ---
+# --- КОМАНДА: ТЕСТ КАРТОЧКИ ---
 @labeler.message(text="/test_card")
 async def debug_card_cmd(message: Message):
     if message.from_id not in ADMIN_IDS: return
-    
     user = await User.get_or_none(vk_id=message.from_id)
-    if not user: return await message.answer("❌ Ты не в базе.")
-    if not user.card_photo_id: return await message.answer("❌ У тебя нет привязанной карты.")
-    
-    await message.answer(f"🔍 Начинаю диагностику для фото {user.card_photo_id}...")
-    # Запускаем обновление с передачей сообщения для отчета
+    if not user or not user.card_photo_id: return await message.answer("❌ Нет привязанной карты.")
+    await message.answer(f"🔍 Диагностика для {user.card_photo_id}...")
     await auto_update_card(message.ctx_api, user, debug_message=message)
-
 
 # --- КОМАНДА: НАЧИСЛИТЬ ---
 @labeler.message(regex=r"^(?i)Начислить\s+(.*?)\s+(\d+)$")
@@ -163,7 +154,6 @@ async def link_card(message: Message, match):
     await user.save()
     
     await message.answer(f"🔗 Связано! Пробую оставить комментарий...")
-    # Передаем message, чтобы видеть ошибки прямо в чате при привязке
     await auto_update_card(message.ctx_api, user, debug_message=message)
 
 # --- ОСТАЛЬНОЕ ---
