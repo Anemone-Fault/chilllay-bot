@@ -11,11 +11,14 @@ class User(models.Model):
     vk_id = fields.BigIntField(pk=True)
     first_name = fields.CharField(max_length=255)
     last_name = fields.CharField(max_length=255)
-    balance = fields.IntField(default=100) # Стартовый баланс
+    balance = fields.IntField(default=100) 
     karma = fields.IntField(default=0)
     
-    # 🔥 НОВОЕ ПОЛЕ: Сюда сохраним ID фотки (например, "photo-12345_67890")
+    # ID фотографии (photo-123_456)
     card_photo_id = fields.CharField(max_length=100, null=True)
+    
+    # 🔥 НОВОЕ ПОЛЕ: ID комментария под фото (чтобы редактировать его)
+    card_comment_id = fields.IntField(null=True)
     
     is_admin = fields.BooleanField(default=False)
     is_banned = fields.BooleanField(default=False)
@@ -26,14 +29,11 @@ class User(models.Model):
         table = "users"
     
     def get_rank(self) -> str:
-        # Если карма ужасная (-10 и ниже), добавляем позорную приписку
         suffix = " (Гниль 💩)" if self.karma < -10 else ""
         b = self.balance
-        
-        # --- СИСТЕМА РАНГОВ ---
-        if b < 500: return f"Амеба 🦠{suffix}"        # Если слил почти всё
-        if b < 1000: return f"Биомусор 🗑️{suffix}"   # Если меньше стартовых 1000
-        if b < 5000: return f"Попущ 🤡{suffix}"       # Новички (от 1000 до 5000)
+        if b < 500: return f"Амеба 🦠{suffix}"
+        if b < 1000: return f"Биомусор 🗑️{suffix}"
+        if b < 5000: return f"Попущ 🤡{suffix}"
         if b < 20000: return f"Говночист 🚽{suffix}"
         if b < 50000: return f"Крыса канцелярская 🐀{suffix}"
         if b < 100000: return f"Скам-мамонт 🐒{suffix}"
