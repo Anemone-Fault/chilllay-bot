@@ -15,12 +15,36 @@ class SystemMiddleware(BaseMiddleware[Message]):
             return
 
         # --- ФИКС ДЛЯ @chiill_rp (club224755876) ---
-        # Если VK_GROUP_ID указан в настройках, чистим сообщение от упоминания бота.
+        # Убираем упоминание бота из начала сообщения
         if VK_GROUP_ID > 0:
-            pattern = rf"^\[(?:club|public){VK_GROUP_ID}\|.*?\]\s*"
+            # Паттерны для поиска упоминаний:
+            # 1. [club224755876|@chiill_rp] или [club224755876|текст]
+            # 2. [public224755876|@chiill_rp] или [public224755876|текст]
+            # 3. @club224755876 (короткая запись)
+            patterns = [
+                rf"^\[club{VK_GROUP_ID}\|.*?\]\s*",  # [club224755876|...]
+                rf"^\[public{VK_GROUP_ID}\|.*?\]\s*",  # [public224755876|...]
+                rf"^@club{VK_GROUP_ID}\s*",  # @club224755876
+                rf"^@public{VK_GROUP_ID}\s*",  # @public224755876
+            ]
             
-            if re.match(pattern, self.event.text):
-                self.event.text = re.sub(pattern, "", self.event.text)
+            # Проверяем все паттерны
+            for pattern in patterns:
+                if re.match(pattern, self.event.text, re.IGNORECASE):
+                    # Удаляем упоминание из текста
+                    self.event.text = re.sub(pattern, "", self.event.text, flags=re.IGNORECASE).strip()
+                    break
+        
+        # Также обрабатываем случай, когда бот упоминается в середине текста
+        # (например, пересланное сообщение или ответ)
+        if VK_GROUP_ID > 0:
+            # Удаляем упоминания бота из любого места текста
+            self.event.text = re.sub(
+                rf"\[(?:club|public){VK_GROUP_ID}\|.*?\]",
+                "",
+                self.event.text,
+                flags=re.IGNORECASE
+            ).strip()
         # -------------------------------------------
 
         user_id = self.event.from_id
@@ -28,11 +52,9 @@ class SystemMiddleware(BaseMiddleware[Message]):
         # 1. Throttling (Анти-спам)
         now = time.time()
         last_time = user_last_msg.get(user_id, 0)
-        
         if now - last_time < RATE_LIMIT_SECONDS:
             self.stop("Throttled")
             return
-        
         user_last_msg[user_id] = now
 
         # 2. Авто-регистрация
@@ -41,8 +63,8 @@ class SystemMiddleware(BaseMiddleware[Message]):
         if not user:
             first_name = "Неизвестный"
             last_name = "Игрок"
-            
             try:
+                # Получаем инфо, если профиль открыт
                 user_infos = await self.event.ctx_api.users.get(user_id)
                 if user_infos:
                     first_name = user_infos[0].first_name
@@ -56,34 +78,7 @@ class SystemMiddleware(BaseMiddleware[Message]):
                 last_name=last_name,
                 balance=STARTING_BALANCE
             )
-            
-            # Приветственное сообщение для нового пользователя
-            try:
-                welcome_text = (
-                    "╔═══════════════════════╗\n"
-                    "   🎉 ДОБРО ПОЖАЛОВАТЬ! 🎉\n"
-                    "╚═══════════════════════╝\n\n"
-                    f"👋 Привет, {first_name}!\n\n"
-                    f"💰 Стартовый капитал: {STARTING_BALANCE:,}\n"
-                    f"☢️ Ранг: {user.get_rank()}\n\n"
-                    "┏━━━━━━━━━━━━━━━━━━━━┓\n"
-                    "│  💡 С ЧЕГО НАЧАТЬ?\n"
-                    "┗━━━━━━━━━━━━━━━━━━━━┛\n\n"
-                    "→ Напиши 'Помощь' для списка команд\n"
-                    "→ Напиши 'Профиль' чтобы посмотреть свою карточку\n"
-                    "→ Напиши 'Бонус' чтобы получить халяву!\n\n"
-                    "🎮 Удачной игры!"
-                )
-                
-                await self.event.ctx_api.messages.send(
-                    peer_id=user_id,
-                    message=welcome_text,
-                    random_id=0
-                )
-            except:
-                pass
 
-        # 3. Проверка бана
         if user.is_banned:
             self.stop("Banned user")
             return
