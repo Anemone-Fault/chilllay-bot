@@ -1,13 +1,18 @@
 from vkbottle.bot import BotLabeler, Message
-from vkbottle import Keyboard, KeyboardButtonColor, Text
+from vkbottle import Keyboard, KeyboardButtonColor, Text, API
 from database.models import User, TransactionLog, Cheque, Promo
 from tortoise.transactions import in_transaction
 from datetime import datetime, timezone
 from utils.helpers import get_id_from_mention, generate_cheque_code
-from settings import ADMIN_IDS
+from settings import ADMIN_IDS, USER_TOKEN
 import random
 
 labeler = BotLabeler()
+
+# --- 🔌 ПОДКЛЮЧЕНИЕ USER API ---
+# Создаем отдельный клиент для редактирования фото
+# Если токена нет, будет None (и функция просто пропустит обновление)
+user_api = API(USER_TOKEN) if USER_TOKEN else None
 
 # --- 🛠 ПОМОЩНИК: ПОЛУЧЕНИЕ ИГРОКА ---
 async def get_user(message: Message) -> User:
@@ -36,12 +41,21 @@ async def get_user(message: Message) -> User:
 
 # --- 📸 ПОМОЩНИК: АВТО-ОБНОВЛЕНИЕ ФОТО ---
 async def auto_update_card(api, user_db: User):
-    """Эта функция тихо обновляет фото, если оно привязано"""
+    """
+    Эта функция тихо обновляет фото через USER_TOKEN.
+    Аргумент 'api' оставлен для совместимости, но используется глобальный user_api.
+    """
     if not user_db.card_photo_id:
+        return
+
+    # Если токен пользователя не настроен, выходим, чтобы не было ошибок
+    if not user_api:
+        print("⚠️ USER_TOKEN не настроен. Пропускаю обновление карты.")
         return
 
     await user_db.refresh_from_db()
 
+    # ТВОЕ ОФОРМЛЕНИЕ
     new_description = (
         f"╔══════════════════╗\n"
         f"  ✦ ДОСЬЕ ИГРОКА ✦\n"
@@ -55,13 +69,14 @@ async def auto_update_card(api, user_db: User):
 
     try:
         owner_id, photo_id = user_db.card_photo_id.split('_')
-        await api.photos.edit(
+        # ВАЖНО: используем user_api для редактирования
+        await user_api.photos.edit(
             owner_id=int(owner_id),
             photo_id=int(photo_id),
             caption=new_description
         )
-    except:
-        pass
+    except Exception as e:
+        print(f"⚠️ Ошибка обновления фото: {e}")
 
 # --- 🎮 КЛАВИАТУРА ---
 def get_main_keyboard():
@@ -224,7 +239,7 @@ async def daily_bonus(message: Message):
         
         text = (
             "╔═══════════════════════╗\n"
-            "      ⏰ СЛИШКОМ РАНО ⏰\n"
+            "     ⏰ СЛИШКОМ РАНО ⏰\n"
             "╚═══════════════════════╝\n\n"
             f"🚫 Бонус раз в 24 часа!\n\n"
             f"⏳ Осталось: {hours}ч {minutes}м\n\n"
@@ -365,7 +380,7 @@ async def plus_rep(message: Message, match):
     
     text = (
         "╔═══════════════════════╗\n"
-        "      🫡 РЕСПЕКТ ОТПРАВЛЕН 🫡\n"
+        "     🫡 РЕСПЕКТ ОТПРАВЛЕН 🫡\n"
         "╚═══════════════════════╝\n\n"
         f"✅ [id{target_id}|{target.first_name}] получил +1 карму!\n\n"
         f"💸 Списано: {cost:,}\n"
@@ -415,7 +430,7 @@ async def minus_rep(message: Message, match):
     
     text = (
         "╔═══════════════════════╗\n"
-        "      💦 ХАРКНУЛ! 💦\n"
+        "     💦 ХАРКНУЛ! 💦\n"
         "╚═══════════════════════╝\n\n"
         f"🎯 [id{target_id}|{target.first_name}] получил -1 карму!\n\n"
         f"💸 Списано: {cost:,}\n"
@@ -530,7 +545,7 @@ async def claim_cheque(message: Message):
     
     text = (
         "╔═══════════════════════╗\n"
-        "      🎉 УСПЕХ! 🎉\n"
+        "     🎉 УСПЕХ! 🎉\n"
         "╚═══════════════════════╝\n\n"
         f"✨ Выигрыш: +{prize:,} 💰\n"
         f"🎫 Чек: {code}\n\n"
@@ -600,7 +615,7 @@ async def activate_promo(message: Message, match):
     
     text = (
         "╔═══════════════════════╗\n"
-        "    🎉 ПРОМОКОД АКТИВИРОВАН! 🎉\n"
+        "   🎉 ПРОМОКОД АКТИВИРОВАН! 🎉\n"
         "╚═══════════════════════╝\n\n"
         f"🎫 Код: {code}\n"
         f"✨ Получено: +{p.amount:,} 💰\n\n"
