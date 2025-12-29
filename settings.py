@@ -7,6 +7,10 @@ VK_GROUP_TOKEN = os.getenv("VK_GROUP_TOKEN")
 # Если ID не указан, ставим 0, чтобы не крашилось сразу, но бот должен знать свой ID
 VK_GROUP_ID = int(os.getenv("VK_GROUP_ID", 0))
 
+# --- НОВОЕ: Токен пользователя для редактирования фото ---
+USER_TOKEN = os.getenv("USER_TOKEN")
+# ---------------------------------------------------------
+
 # Безопасная обработка списка админов
 admin_ids_str = os.getenv("ADMIN_IDS", "")
 try:
