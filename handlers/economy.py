@@ -40,6 +40,9 @@ async def auto_update_card(api, user_db: User):
     if not user_db.card_photo_id:
         return # Если карты нет, просто выходим
 
+    # Обновляем объект из БД, чтобы цифры были точные
+    await user_db.refresh_from_db()
+
     new_description = (
         f"✦ ДОСЬЕ ИГРОКА ✦\n\n"
         f"👤 Имя: {user_db.first_name}\n"
@@ -56,7 +59,7 @@ async def auto_update_card(api, user_db: User):
             caption=new_description
         )
     except:
-        pass # Если ошибка (лимиты ВК), просто игнорируем, чтобы бот не падал
+        pass 
 
 # --- 🎮 КЛАВИАТУРА ---
 def get_main_keyboard():
@@ -96,7 +99,7 @@ async def profile(message: Message):
 @labeler.message(regex=r"^(?i)(?:Обновить карту|Update card)$")
 async def manual_update_card(message: Message):
     user_db = await get_user(message)
-    await auto_update_card(message.ctx_api, user_db) # Вызываем нашу функцию
+    await auto_update_card(message.ctx_api, user_db)
     await message.answer("✅ Данные на карточке обновлены!")
 
 @labeler.message(regex=r"^(?i)(?:Помощь|Команды|Меню|Help|Start|Начать)(?:\s.*)?$")
@@ -148,7 +151,6 @@ async def daily_bonus(message: Message):
     await user_db.save()
     await TransactionLog.create(user=user_db, amount=amount, description="Бонус")
     
-    # 🔥 АВТО-ОБНОВЛЕНИЕ КАРТЫ
     await auto_update_card(message.ctx_api, user_db)
     
     await message.answer(f"🎁 Халява! Ты нафармил {amount} Чилликов.", keyboard=get_main_keyboard())
@@ -178,7 +180,6 @@ async def transfer(message: Message, match):
         await TransactionLog.create(user=sender, amount=-amount, description=f"Перевод -> {target_id}")
         await TransactionLog.create(user=recipient, amount=amount, description=f"Перевод <- {sender.vk_id}")
 
-    # 🔥 АВТО-ОБНОВЛЕНИЕ КАРТЫ ДЛЯ ОБОИХ
     await auto_update_card(message.ctx_api, sender)
     await auto_update_card(message.ctx_api, recipient)
 
@@ -197,24 +198,30 @@ async def plus_rep(message: Message, match):
     target_id = get_id_from_mention(match[0])
     cost = 100 
     if not target_id: return await message.answer("❌ Кому?", keyboard=get_main_keyboard())
+    
+    # Предварительная проверка
     if user_db.balance < cost: return await message.answer(f"❌ Цена {cost}.", keyboard=get_main_keyboard())
 
     async with in_transaction():
+        # БЛОКИРУЕМ ЗАПИСЬ ДЛЯ СПИСАНИЯ
         sender = await User.filter(vk_id=user_db.vk_id).select_for_update().first()
         target = await User.get_or_none(vk_id=target_id)
+        
         if not target: return await message.answer("❌ Не найден.", keyboard=get_main_keyboard())
         if sender.balance < cost: return await message.answer("❌ Мало денег.", keyboard=get_main_keyboard())
         
+        # СПИСЫВАЕМ И СОХРАНЯЕМ ВНУТРИ ТРАНЗАКЦИИ
         sender.balance -= cost
         target.karma += 1
+        
         await sender.save()
         await target.save()
         await TransactionLog.create(user=sender, amount=-cost, description="Респект")
 
-    # 🔥 ОБНОВЛЯЕМ (У отправителя списались деньги)
+    # Обновляем карту ПОСЛЕ транзакции
     await auto_update_card(message.ctx_api, sender)
     
-    await message.answer(f"🫡 Респект отправлен.", keyboard=get_main_keyboard())
+    await message.answer(f"🫡 Респект отправлен.\n💸 Списано {cost} чилликов.", keyboard=get_main_keyboard())
 
 @labeler.message(regex=r"^\-реп\s+(.*)$")
 async def minus_rep(message: Message, match):
@@ -222,23 +229,25 @@ async def minus_rep(message: Message, match):
     target_id = get_id_from_mention(match[0])
     cost = 500
     if not target_id: return await message.answer("❌ Кого?", keyboard=get_main_keyboard())
+    
     if user_db.balance < cost: return await message.answer(f"❌ Цена {cost}.", keyboard=get_main_keyboard())
 
     async with in_transaction():
         sender = await User.filter(vk_id=user_db.vk_id).select_for_update().first()
         target = await User.get_or_none(vk_id=target_id)
+        
         if not target: return await message.answer("❌ Не найден.", keyboard=get_main_keyboard())
         if sender.balance < cost: return await message.answer("❌ Мало денег.", keyboard=get_main_keyboard())
         
         sender.balance -= cost
         target.karma -= 1
+        
         await sender.save()
         await target.save()
         await TransactionLog.create(user=sender, amount=-cost, description="Дизлайк")
 
-    # 🔥 ОБНОВЛЯЕМ
     await auto_update_card(message.ctx_api, sender)
-    await message.answer(f"💦 Харкнул в профиль.", keyboard=get_main_keyboard())
+    await message.answer(f"💦 Харкнул в профиль.\n💸 Списано {cost} чилликов.", keyboard=get_main_keyboard())
 
 @labeler.message(regex=r"^(?i)Чек\s+(\d+)(?:\s+(\d+))?(?:\s+(р))?$")
 async def create_cheque(message: Message, match):
@@ -259,7 +268,6 @@ async def create_cheque(message: Message, match):
         await Cheque.create(code=code, creator_id=user_db.vk_id, total_amount=amount, amount_left=amount, activations_limit=activations, mode="random" if is_random else "fix")
         await TransactionLog.create(user=sender, amount=-amount, description=f"Чек {code}")
 
-    # 🔥 ОБНОВЛЯЕМ
     await auto_update_card(message.ctx_api, sender)
 
     type_text = "🎲 Рандомный" if is_random else "💰 Фиксированный"
@@ -285,6 +293,7 @@ async def claim_cheque(message: Message):
             if remains == 1: prize = cheque.amount_left
             else:
                 max_safe = cheque.amount_left - (remains - 1)
+                if max_safe < 1: max_safe = 1
                 prize = random.randint(1, max(1, max_safe))
 
         cheque.amount_left -= prize
@@ -293,11 +302,11 @@ async def claim_cheque(message: Message):
         users.append(user_db.vk_id)
         cheque.users_activated = users
         await cheque.save()
+        
         user_db.balance += prize
         await user_db.save()
         await TransactionLog.create(user=user_db, amount=prize, description=f"Чек {code}")
 
-    # 🔥 ОБНОВЛЯЕМ (Того, кто забрал)
     await auto_update_card(message.ctx_api, user_db)
     await message.answer(f"✅ Урвал кусок!\n+{prize} Чилликов.", keyboard=get_main_keyboard())
 
@@ -321,10 +330,10 @@ async def activate_promo(message: Message, match):
         users.append(user_db.vk_id)
         p.users_activated = users
         await p.save()
+        
         user_db.balance += p.amount
         await user_db.save()
         await TransactionLog.create(user=user_db, amount=p.amount, description=f"Promo {code}")
 
-    # 🔥 ОБНОВЛЯЕМ
     await auto_update_card(message.ctx_api, user_db)
     await message.answer(f"✅ Промокод активирован!\nНасыпал тебе {p.amount} Чилликов.", keyboard=get_main_keyboard())
