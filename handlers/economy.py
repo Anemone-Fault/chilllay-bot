@@ -1,6 +1,6 @@
 from vkbottle.bot import BotLabeler, Message
 from vkbottle import Keyboard, KeyboardButtonColor, Text
-from database.models import User, TransactionLog, Cheque, Promo
+from database.models import User, TransactionLog, Cheque, Promo, SystemConfig
 from tortoise.transactions import in_transaction
 from datetime import datetime, timezone, timedelta
 from utils.helpers import get_id_from_mention, generate_cheque_code
@@ -35,6 +35,7 @@ async def get_user(message: Message) -> User:
         return user_db
     return None
 
+# Хранилище мутов для казино
 casino_mutes = {}  
 def is_muted(user_id: int) -> tuple[bool, int]:
     if user_id not in casino_mutes: return False, 0
@@ -46,9 +47,61 @@ def is_muted(user_id: int) -> tuple[bool, int]:
     minutes_left = int((until - now).total_seconds() / 60)
     return True, minutes_left
 
+
 # ====================
-# КОМАНДЫ
+# ОСНОВНЫЕ КОМАНДЫ
 # ====================
+
+@labeler.message(regex=r"^(?i)(?:Помощь|Help|Команды)$")
+async def help_handler(message: Message):
+    user_db = await get_user(message)
+    
+    # 1. Шапка
+    text = (
+        "╔═══════════════╗\n"
+        "    🗺 НАВИГАЦИЯ\n"
+        "╚═══════════════╝\n\n"
+        "👤 ЛИЧНОЕ:\n"
+        "🔹 Профиль — твоя карточка и ранг\n"
+        "🔹 Баланс — счет и зарплата (РП)\n"
+        "🔹 Бонус — забирай раз в 24 часа\n"
+        "🔹 Топ — список богатейших\n\n"
+        "🎰 РАЗВЛЕЧЕНИЯ:\n"
+        "🔹 Казино [сумма] — испытай удачу!\n\n"
+        "💸 ДЕЙСТВИЯ:\n"
+        "🔹 Перевод @user 100 — передать валюту\n"
+        "🔹 Чек 1000 3 — создать мешок денег\n"
+        "🔹 +реп @user — поднять карму\n"
+        "🔹 -реп @user — опустить карму\n\n"
+        "🛒 МАГАЗИН:\n"
+        "🔹 Хочу [товар] — оставить заявку"
+    )
+    
+    # 2. Админ-раздел (Виден только админам)
+    if message.from_id in ADMIN_IDS or user_db.is_admin:
+        text += (
+            "\n\n╔═══════════════╗\n"
+            "    🛡 АДМИН-ПАНЕЛЬ\n"
+            "╚═══════════════╝\n\n"
+            "⚙ УПРАВЛЕНИЕ:\n"
+            "🔸 !Ивенты — список событий\n"
+            "🔸 !Ивент [Имя] [вкл/выкл] — переключить\n"
+            "🔸 !СетФото [Меню] — сменить картинку\n"
+            "🔸 !Связать photo-123_456 @user — карта\n\n"
+            "📦 ВЫДАЧА:\n"
+            "🔸 !Выдать [id] — дать кейс\n"
+            "🔸 !Создать [Имя] [Ранг] [Тип] — предмет\n"
+            "🔸 Начислить @user 1000\n"
+            "🔸 Списать @user 1000\n\n"
+            "⛔ МОДЕРАЦИЯ:\n"
+            "🔸 Попущенный @user — бан\n"
+            "🔸 Разбан @user\n"
+            "🔸 Рассылка [текст]"
+        )
+
+    img = await get_image_for_command("help")
+    kb = await get_smart_keyboard(user_db, "help")
+    await message.answer(text, attachment=img, keyboard=kb)
 
 @labeler.message(regex=r"^(?i)(?:Профиль|Стат.?|Инфо|Я|Прф)$")
 async def profile_handler(message: Message):
@@ -121,46 +174,6 @@ async def bonus_handler(message: Message):
     )
     kb = await get_smart_keyboard(user_db, "main")
     await message.answer(text, keyboard=kb)
-
-@labeler.message(regex=r"^(?i)(?:Помощь|Help|Команды)$")
-async def help_handler(message: Message):
-    user_db = await get_user(message)
-    
-    # ТВОЙ ОРИГИНАЛЬНЫЙ ТЕКСТ
-    text = (
-        "╔═══════════════╗\n"
-        "     НАВИГАЦИЯ\n"
-        "╚═══════════════╝\n\n"
-        " ЛИЧНОЕ:\n"
-        "• Профиль - твоя карточка\n"
-        "• Баланс - счет и зп\n"
-        "• Бонус - Выдает рандомное количество чилликов, раз в 24 часа\n"
-        "• Топ - богатейшие игроки\n\n"
-        " РАЗВЛЕЧЕНИЯ:\n"
-        "• Казино [сумма] - рулетка!\n\n"
-        " ДЕЙСТВИЯ:\n"
-        "• Перевод @user 100\n"
-        "• Чек 1000 3\n"
-        "• +реп @user / -реп @user\n\n"
-        " МАГАЗИН:\n"
-        "• Хочу [товар]"
-    )
-    
-    # Проверка на Админа (по ID из settings или из базы)
-    if message.from_id in ADMIN_IDS or user_db.is_admin:
-        text += (
-            "\n\n АДМИН:\n"
-            "Начислить, Списать, Бан, Рассылка, Промокод, Стоимость, Связать [photo-123_456] [id]\n"
-            "• !Ивент [Имя] вкл/выкл\n"
-            "• !СетФото [Команда] (прикрепить фото)\n"
-            "• !Создать [Имя] [Ранг] [Тип]\n"
-            "• !Выдать [id]\n"
-            "• !Принудительная зарплата"
-        )
-
-    img = await get_image_for_command("help")
-    kb = await get_smart_keyboard(user_db, "help")
-    await message.answer(text, attachment=img, keyboard=kb)
 
 @labeler.message(regex=r"^(?i)(?:Магазин|Shop|Купить|🛒 Магазин)(?:\s.*)?$")
 async def shop_info(message: Message):
