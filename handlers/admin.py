@@ -22,7 +22,6 @@ async def toggle_event(message: Message, match):
     
     await message.answer(f"⚙️ Ивент '{event_name}' установлен в {state}.")
     
-    # Анонс
     if MAIN_CHAT_ID != 0:
         if state == "True":
             announcement = (
@@ -46,13 +45,10 @@ async def toggle_event(message: Message, match):
         try: await message.ctx_api.messages.send(peer_id=MAIN_CHAT_ID, message=announcement, random_id=0)
         except: pass
 
-# --- 🖼️ КАРТИНКИ КОМАНД ---
 @labeler.message(regex=r"^!СетФото\s+(.*?)$")
 async def set_cmd_photo(message: Message, match):
-    """Прикрепи фото и напиши !СетФото Профиль"""
     if message.from_id not in ADMIN_IDS: return
-    
-    cmd = match[0].lower() # профиль, баланс, помощь, магазин
+    cmd = match[0].lower()
     if not message.attachments or message.attachments[0].type != "photo":
         return await message.answer("❌ Прикрепи фото к команде.")
     
@@ -63,24 +59,19 @@ async def set_cmd_photo(message: Message, match):
     conf, _ = await SystemConfig.get_or_create(key=key)
     conf.value = photo_id
     await conf.save()
-    
     await message.answer(f"✅ Картинка для '{cmd}' сохранена!")
 
-# --- 🛠 СОЗДАНИЕ ПРЕДМЕТА ---
 @labeler.message(regex=r"^!Создать\s+(.*?)\s+(.*?)\s+(.*?)$")
 async def create_item_cmd(message: Message, match):
     if message.from_id not in ADMIN_IDS: return
-    # Пример: !Создать Меч Обычный Предмет
     name, r_str, t_str = match[0], match[1], match[2]
     try:
-        r = Rarity(r_str)
-        t = ItemType(t_str)
+        r = Rarity(r_str); t = ItemType(t_str)
         item = await Item.create(name=name, rarity=r, type=t)
         await message.answer(f"✅ Предмет {name} (ID {item.id}) создан.")
     except Exception as e:
         await message.answer(f"Ошибка: {e}")
 
-# --- 🎁 ВЫДАЧА КЕЙСОВ ---
 @labeler.message(regex=r"^!Выдать\s+(.*?)(?:\s+(.*))?$")
 async def admin_give_box(message: Message, match):
     if message.from_id not in ADMIN_IDS: return
@@ -90,7 +81,7 @@ async def admin_give_box(message: Message, match):
     box = await GiftBox.create(user=user, rarity=Rarity.RARE, gift_type=GiftType.ITEM, quantity=1)
     await message.answer(f"✅ Кейс выдан {user.first_name}")
 
-# --- 💰 ДРУГИЕ АДМИН КОМАНДЫ (СТАРЫЕ) ---
+# --- СТАРЫЕ АДМИН КОМАНДЫ ---
 
 @labeler.message(regex=r"^(?i)Начислить\s+(.*?)\s+(\d+)$")
 async def admin_give_money(message: Message, match):
@@ -108,19 +99,31 @@ async def admin_give_money(message: Message, match):
 async def link_card(message: Message, match):
     if message.from_id not in ADMIN_IDS: return
     full_text = match[0]
+    
+    # Регулярка теперь ищет "photo-123_456" в любом месте текста
+    # (в ссылке, в тексте, в упоминании [photo-123_456|...])
     photo_match = re.search(r"photo(-?\d+_\d+)", full_text)
-    if not photo_match: return await message.answer("❌ Ссылка на фото?")
+    
+    if not photo_match: 
+        return await message.answer(
+            "❌ Не вижу ID фото в тексте.\n"
+            "Пример: Связать photo-123_456 @user\n"
+            "Или: Связать vk.com/photo-123_456 @user"
+        )
     
     target_id = None
     for word in full_text.split():
         uid = get_id_from_mention(word)
         if uid: target_id = uid; break
     
-    if not target_id: return await message.answer("❌ Кому?")
+    if not target_id: return await message.answer("❌ Кому вязать?")
+    
     user = await User.get(vk_id=target_id)
+    # Сохраняем только часть "-123_456"
     user.card_photo_id = photo_match.group(1)
     await user.save()
-    await message.answer("✅ Связано!")
+    
+    await message.answer("✅ Связано! Пробую обновить...")
     await auto_update_card(message.ctx_api, user)
 
 @labeler.message(text="!Принудительная зарплата")
@@ -155,3 +158,7 @@ async def set_price(message: Message, match):
         try: await message.ctx_api.messages.send(peer_id=target_id, message=f"💰 Оценка товара: {price}", random_id=0)
         except: pass
     await message.answer("✅ Оценено.")
+    
+@labeler.message(text="!id")
+async def get_chat_id(message: Message):
+    await message.answer(f"🆔 ID этого чата: {message.peer_id}")
