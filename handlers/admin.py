@@ -1,145 +1,135 @@
 from vkbottle.bot import BotLabeler, Message
-from vkbottle import VKAPIError
-from database.models import User, TransactionLog, Promo, Cheque, ShopRequest, RequestStatus
-from settings import ADMIN_IDS
+from database.models import User, SystemConfig, Item, Rarity, ItemType, GiftBox, GiftType, Promo, ShopRequest, RequestStatus
+from settings import ADMIN_IDS, MAIN_CHAT_ID
 from utils.helpers import get_id_from_mention
 from utils.card_updater import auto_update_card
 import re
 
 labeler = BotLabeler()
 
+# --- ⚙️ УПРАВЛЕНИЕ ИВЕНТОМ ---
+@labeler.message(regex=r"^!Ивент\s+(.*?)\s+(вкл|выкл)$")
+async def toggle_event(message: Message, match):
+    if message.from_id not in ADMIN_IDS: return
+    
+    event_name = match[0] # Например "НовыйГод"
+    state = "True" if match[1].lower() == "вкл" else "False"
+    
+    key = f"event_{event_name.lower()}"
+    conf, _ = await SystemConfig.get_or_create(key=key)
+    conf.value = state
+    await conf.save()
+    
+    await message.answer(f"⚙️ Ивент '{event_name}' установлен в {state}.")
+    
+    # Анонс
+    if MAIN_CHAT_ID != 0:
+        if state == "True":
+            announcement = (
+                f"╔═══════════════╗\n"
+                f"   🎄 {event_name.upper()}\n"
+                f"╚═══════════════╝\n\n"
+                f"✨ Событие официально запущено!\n"
+                f"Получайте кейсы за РП и лайки.\n\n"
+                f"🎁 В меню появилась кнопка «Подарки».\n"
+                f"@all"
+            )
+        else:
+            announcement = (
+                f"╔═══════════════╗\n"
+                f"   🏁 ИВЕНТ ЗАВЕРШЕН\n"
+                f"╚═══════════════╝\n\n"
+                f"Выдача кейсов остановлена.\n"
+                f"Инвентарь и открытие по-прежнему работают.\n"
+                f"@all"
+            )
+        try: await message.ctx_api.messages.send(peer_id=MAIN_CHAT_ID, message=announcement, random_id=0)
+        except: pass
 
-# --- ПОМОЩНИК: ПОЛУЧЕНИЕ ИМЕНИ ---
-async def get_name(message: Message, user_id: int) -> str:
-    user = await User.get_or_none(vk_id=user_id)
-    if user and user.first_name != "Неизвестный":
-        return user.first_name
+# --- 🖼️ КАРТИНКИ КОМАНД ---
+@labeler.message(regex=r"^!СетФото\s+(.*?)$")
+async def set_cmd_photo(message: Message, match):
+    """Прикрепи фото и напиши !СетФото Профиль"""
+    if message.from_id not in ADMIN_IDS: return
+    
+    cmd = match[0].lower() # профиль, баланс, помощь, магазин
+    if not message.attachments or message.attachments[0].type != "photo":
+        return await message.answer("❌ Прикрепи фото к команде.")
+    
+    photo = message.attachments[0].photo
+    photo_id = f"photo{photo.owner_id}_{photo.id}"
+    
+    key = f"img_{cmd}"
+    conf, _ = await SystemConfig.get_or_create(key=key)
+    conf.value = photo_id
+    await conf.save()
+    
+    await message.answer(f"✅ Картинка для '{cmd}' сохранена!")
+
+# --- 🛠 СОЗДАНИЕ ПРЕДМЕТА ---
+@labeler.message(regex=r"^!Создать\s+(.*?)\s+(.*?)\s+(.*?)$")
+async def create_item_cmd(message: Message, match):
+    if message.from_id not in ADMIN_IDS: return
+    # Пример: !Создать Меч Обычный Предмет
+    name, r_str, t_str = match[0], match[1], match[2]
     try:
-        users_info = await message.ctx_api.users.get(user_ids=[user_id])
-        return users_info[0].first_name
-    except:
-        return "User"
+        r = Rarity(r_str)
+        t = ItemType(t_str)
+        item = await Item.create(name=name, rarity=r, type=t)
+        await message.answer(f"✅ Предмет {name} (ID {item.id}) создан.")
+    except Exception as e:
+        await message.answer(f"Ошибка: {e}")
 
-# --- КОМАНДА: ТЕСТ КАРТОЧКИ ---
-@labeler.message(text="/test_card")
-async def debug_card_cmd(message: Message):
+# --- 🎁 ВЫДАЧА КЕЙСОВ ---
+@labeler.message(regex=r"^!Выдать\s+(.*?)(?:\s+(.*))?$")
+async def admin_give_box(message: Message, match):
     if message.from_id not in ADMIN_IDS: return
-    user = await User.get_or_none(vk_id=message.from_id)
-    if not user or not user.card_photo_id: 
-        return await message.answer("❌ Нет привязанной карты.")
-    
-    await message.answer(f"🔍 Диагностика для {user.card_photo_id}...")
-    await auto_update_card(message.ctx_api, user, debug_message=message)
+    user_id = get_id_from_mention(match[0])
+    if not user_id: return
+    user = await User.get(vk_id=user_id)
+    box = await GiftBox.create(user=user, rarity=Rarity.RARE, gift_type=GiftType.ITEM, quantity=1)
+    await message.answer(f"✅ Кейс выдан {user.first_name}")
 
-# --- КОМАНДА: НАЧИСЛИТЬ ---
+# --- 💰 ДРУГИЕ АДМИН КОМАНДЫ (СТАРЫЕ) ---
+
 @labeler.message(regex=r"^(?i)Начислить\s+(.*?)\s+(\d+)$")
-async def admin_give(message: Message, match):
+async def admin_give_money(message: Message, match):
     if message.from_id not in ADMIN_IDS: return
-    target_raw, amount_str = match[0], match[1]
-    amount = int(amount_str)
-    target_id = get_id_from_mention(target_raw)
+    target_id = get_id_from_mention(match[0])
+    amount = int(match[1])
+    if not target_id: return
+    user = await User.get_or_create(vk_id=target_id, defaults={"first_name": "Player", "last_name": "Player"})
+    user[0].balance += amount
+    await user[0].save()
+    await auto_update_card(message.ctx_api, user[0])
+    await message.answer(f"✅ +{amount}")
 
-    if not target_id: return await message.answer("❌ Кому?")
-    name = await get_name(message, target_id)
-    user = await User.get_or_none(vk_id=target_id)
-    if not user: user = await User.create(vk_id=target_id, first_name=name, last_name="Player")
-
-    user.balance += amount
-    user.first_name = name
-    await user.save()
-    
-    await auto_update_card(message.ctx_api, user) 
-    await TransactionLog.create(user=user, amount=amount, description="Админ выдал")
-    await message.answer(f"✅ Выдано {amount} игроку {name}.")
-
-# --- КОМАНДА: СПИСАТЬ ---
-@labeler.message(regex=r"^(?i)Списать\s+(.*?)\s+(\d+)$")
-async def admin_remove(message: Message, match):
-    if message.from_id not in ADMIN_IDS: return
-    target_raw, amount_str = match[0], match[1]
-    amount = int(amount_str)
-    target_id = get_id_from_mention(target_raw)
-
-    if not target_id: return await message.answer("❌ Кому?")
-    name = await get_name(message, target_id)
-    user = await User.get_or_none(vk_id=target_id)
-    if not user: return await message.answer("❌ Нет в базе.")
-
-    user.balance -= amount
-    await user.save()
-    await auto_update_card(message.ctx_api, user)
-    await TransactionLog.create(user=user, amount=-amount, description="Админ забрал")
-    await message.answer(f"✅ Списано {amount} у игрока {name}.")
-
-# --- КОМАНДА: СВЯЗАТЬ КАРТОЧКУ ---
 @labeler.message(regex=r"^(?i)Связать\s+(.*)$")
 async def link_card(message: Message, match):
     if message.from_id not in ADMIN_IDS: return
-    full_text = match[0] 
-    
-    # Ищем ссылку на фото (формат: photo-123_456)
+    full_text = match[0]
     photo_match = re.search(r"photo(-?\d+_\d+)", full_text)
-    if not photo_match: 
-        return await message.answer(
-            "❌ Не вижу ссылку на фото.\n\n"
-            "Формат: Связать photo-123_456 @игрок\n"
-            "Или: Связать [ссылка на фото] @игрок"
-        )
+    if not photo_match: return await message.answer("❌ Ссылка на фото?")
     
-    full_photo_id = photo_match.group(1)
-
     target_id = None
     for word in full_text.split():
         uid = get_id_from_mention(word)
-        if uid:
-            target_id = uid
-            break
+        if uid: target_id = uid; break
     
-    if not target_id: return await message.answer("❌ Не указан пользователь.")
-
-    user = await User.get_or_none(vk_id=target_id)
-    if not user:
-        name = await get_name(message, target_id)
-        user = await User.create(vk_id=target_id, first_name=name, last_name="Player")
-    
-    # Сохраняем ID фото
-    user.card_photo_id = full_photo_id
-    user.card_comment_id = None  # Очищаем старое поле
+    if not target_id: return await message.answer("❌ Кому?")
+    user = await User.get(vk_id=target_id)
+    user.card_photo_id = photo_match.group(1)
     await user.save()
-    
-    await message.answer(f"🔗 Связано! Обновляю описание...")
-    await auto_update_card(message.ctx_api, user, debug_message=message)
+    await message.answer("✅ Связано!")
+    await auto_update_card(message.ctx_api, user)
 
-# --- ОСТАЛЬНОЕ ---
-@labeler.message(regex=r"^(?i)Попущенный\s+(.*?)(?:\s+(.*))?$")
-async def admin_ban(message: Message, match):
+@labeler.message(text="!Принудительная зарплата")
+async def force_salary_cmd(message: Message):
     if message.from_id not in ADMIN_IDS: return
-    target_id = get_id_from_mention(match[0])
-    if not target_id: return
-    user = await User.get_or_none(vk_id=target_id)
-    if not user: return 
-    user.is_banned = True
-    await user.save()
-    await message.answer(f"⛔ Забанен.")
-
-@labeler.message(regex=r"^(?i)Разбан\s+(.*?)$")
-async def admin_unban(message: Message, match):
-    if message.from_id not in ADMIN_IDS: return
-    target_id = get_id_from_mention(match[0])
-    if user := await User.get_or_none(vk_id=target_id):
-        user.is_banned = False
-        await user.save()
-        await message.answer("✅ Разбанен.")
-
-@labeler.message(regex=r"^(?i)Рассылка\s+(.*)$")
-async def admin_broadcast(message: Message, match):
-    if message.from_id not in ADMIN_IDS: return
-    text = match[0]
-    users = await User.all()
-    await message.answer(f"📢 Рассылка на {len(users)}.")
-    for user in users:
-        try: await message.ctx_api.messages.send(peer_id=user.vk_id, message=f"📢 {text}", random_id=0)
-        except: pass
+    conf, _ = await SystemConfig.get_or_create(key="last_salary_month")
+    conf.value = "RESET"
+    await conf.save()
+    await message.answer("✅ Метка сброшена. Жди час или перезагрузи бота.")
 
 @labeler.message(regex=r"^(?i)Промокод\s+(\w+)\s+(\d+)\s+(\d+)$")
 async def create_promo(message: Message, match):
@@ -152,16 +142,16 @@ async def set_price(message: Message, match):
     if message.from_id not in ADMIN_IDS: return
     if not message.reply_message: return
     price = int(match[0])
-    user_match = re.search(r"\[id(\d+)\|", message.reply_message.text)
     req_match = re.search(r"ЗАЯВКА №(\d+)", message.reply_message.text)
+    user_match = re.search(r"\[id(\d+)\|", message.reply_message.text)
+    if req_match:
+        req = await ShopRequest.get_or_none(id=int(req_match.group(1)))
+        if req:
+            req.price = price
+            req.status = RequestStatus.PRICE_SET
+            await req.save()
     if user_match:
         target_id = int(user_match.group(1))
-        if req_match:
-            req = await ShopRequest.get_or_none(id=int(req_match.group(1)))
-            if req:
-                req.price = price
-                req.status = RequestStatus.PRICE_SET
-                await req.save()
-        try: await message.ctx_api.messages.send(peer_id=target_id, message=f"💰 Оценка: {price}", random_id=0)
+        try: await message.ctx_api.messages.send(peer_id=target_id, message=f"💰 Оценка товара: {price}", random_id=0)
         except: pass
-        await message.answer("✅ Оценено.")
+    await message.answer("✅ Оценено.")
