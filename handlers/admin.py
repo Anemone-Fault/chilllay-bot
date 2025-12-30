@@ -7,12 +7,38 @@ import re
 
 labeler = BotLabeler()
 
+# --- ⚙️ НОВАЯ КОМАНДА: СПИСОК ИВЕНТОВ ---
+@labeler.message(regex=r"^!Ивенты$")
+async def list_events(message: Message):
+    if message.from_id not in ADMIN_IDS: return
+    
+    # Ищем все настройки, которые начинаются с event_
+    events = await SystemConfig.filter(key__startswith="event_").all()
+    
+    text = (
+        "╔═══════════════╗\n"
+        "    ⚙ СПИСОК ИВЕНТОВ\n"
+        "╚═══════════════╝\n\n"
+    )
+    
+    if not events:
+        text += "Нет зарегистрированных ивентов."
+    else:
+        for e in events:
+            # Превращаем "event_new_year" -> "New_year"
+            name = e.key.replace("event_", "").capitalize()
+            status = "🟢 Вкл" if e.value == "True" else "🔴 Выкл"
+            text += f"🔹 {name}: {status}\n"
+    
+    text += "\nЧтобы переключить:\n!Ивент [имя] [вкл/выкл]"
+    await message.answer(text)
+
 # --- ⚙️ УПРАВЛЕНИЕ ИВЕНТОМ ---
 @labeler.message(regex=r"^!Ивент\s+(.*?)\s+(вкл|выкл)$")
 async def toggle_event(message: Message, match):
     if message.from_id not in ADMIN_IDS: return
     
-    event_name = match[0] # Например "НовыйГод"
+    event_name = match[0] 
     state = "True" if match[1].lower() == "вкл" else "False"
     
     key = f"event_{event_name.lower()}"
@@ -81,8 +107,6 @@ async def admin_give_box(message: Message, match):
     box = await GiftBox.create(user=user, rarity=Rarity.RARE, gift_type=GiftType.ITEM, quantity=1)
     await message.answer(f"✅ Кейс выдан {user.first_name}")
 
-# --- СТАРЫЕ АДМИН КОМАНДЫ ---
-
 @labeler.message(regex=r"^(?i)Начислить\s+(.*?)\s+(\d+)$")
 async def admin_give_money(message: Message, match):
     if message.from_id not in ADMIN_IDS: return
@@ -95,13 +119,54 @@ async def admin_give_money(message: Message, match):
     await auto_update_card(message.ctx_api, user[0])
     await message.answer(f"✅ +{amount}")
 
+@labeler.message(regex=r"^(?i)Списать\s+(.*?)\s+(\d+)$")
+async def admin_remove(message: Message, match):
+    if message.from_id not in ADMIN_IDS: return
+    target_id = get_id_from_mention(match[0])
+    amount = int(match[1])
+    if not target_id: return
+    user = await User.get_or_none(vk_id=target_id)
+    if not user: return await message.answer("❌ Нет в базе.")
+    user.balance -= amount
+    await user.save()
+    await auto_update_card(message.ctx_api, user)
+    await message.answer(f"✅ Списано {amount}.")
+
+@labeler.message(regex=r"^(?i)Попущенный\s+(.*?)$")
+async def admin_ban(message: Message, match):
+    if message.from_id not in ADMIN_IDS: return
+    target_id = get_id_from_mention(match[0])
+    user = await User.get_or_none(vk_id=target_id)
+    if user:
+        user.is_banned = True
+        await user.save()
+        await message.answer("⛔ Забанен.")
+
+@labeler.message(regex=r"^(?i)Разбан\s+(.*?)$")
+async def admin_unban(message: Message, match):
+    if message.from_id not in ADMIN_IDS: return
+    target_id = get_id_from_mention(match[0])
+    user = await User.get_or_none(vk_id=target_id)
+    if user:
+        user.is_banned = False
+        await user.save()
+        await message.answer("✅ Разбанен.")
+
+@labeler.message(regex=r"^(?i)Рассылка\s+(.*)$")
+async def admin_broadcast(message: Message, match):
+    if message.from_id not in ADMIN_IDS: return
+    text = match[0]
+    users = await User.all()
+    await message.answer(f"📢 Рассылка на {len(users)}.")
+    for user in users:
+        try: await message.ctx_api.messages.send(peer_id=user.vk_id, message=f"📢 {text}", random_id=0)
+        except: pass
+
 @labeler.message(regex=r"^(?i)Связать\s+(.*)$")
 async def link_card(message: Message, match):
     if message.from_id not in ADMIN_IDS: return
     full_text = match[0]
     
-    # Регулярка теперь ищет "photo-123_456" в любом месте текста
-    # (в ссылке, в тексте, в упоминании [photo-123_456|...])
     photo_match = re.search(r"photo(-?\d+_\d+)", full_text)
     
     if not photo_match: 
@@ -119,7 +184,6 @@ async def link_card(message: Message, match):
     if not target_id: return await message.answer("❌ Кому вязать?")
     
     user = await User.get(vk_id=target_id)
-    # Сохраняем только часть "-123_456"
     user.card_photo_id = photo_match.group(1)
     await user.save()
     
