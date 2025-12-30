@@ -6,52 +6,105 @@ from datetime import datetime
 import asyncio
 
 async def check_and_pay_salary(bot: Bot):
+    """
+    Проверка и выплата месячной зарплаты.
+    
+    Функция вызывается каждый час планировщиком.
+    Проверяет, не наступил ли новый месяц, и если да —
+    выплачивает всем игрокам накопленную зарплату за РП-активность.
+    
+    Процесс:
+    1. Сравнивает текущий месяц с последней выплатой
+    2. Если месяц новый — начисляет rp_pending_balance на основной счёт
+    3. Обнуляет месячные счётчики (rp_pending_balance и rp_monthly_chars)
+    4. Публикует отчёт с топом самых активных игроков
+    5. Обновляет карточки всех игроков
+    """
     now = datetime.now()
     current_month_key = f"{now.year}-{now.month}" 
-    last_payout, _ = await SystemConfig.get_or_create(key="last_salary_month", defaults={"value": ""})
+    
+    # Проверяем, была ли уже выплата в этом месяце
+    last_payout, _ = await SystemConfig.get_or_create(
+        key="last_salary_month", 
+        defaults={"value": ""}
+    )
 
+    # Если уже была выплата в этом месяце — ничего не делаем
     if last_payout.value == current_month_key:
         return
 
-    # ВЫДАЧА
-    print("💰 Выдача зарплаты...")
+    # === ВЫДАЧА ЗАРПЛАТЫ ===
+    print("💰 Начало выплаты месячной зарплаты...")
+    
+    # Получаем всех игроков с накопленной зарплатой, отсортированных по активности
     users = await User.filter(rp_pending_balance__gt=0).order_by("-rp_monthly_chars").all()
     
     if not users:
+        # Никто не заработал в этом месяце
         last_payout.value = current_month_key
         await last_payout.save()
+        print("💤 Нет игроков с накопленной зарплатой")
         return
 
-    # ОТЧЕТ
+    # === ФОРМИРОВАНИЕ ОТЧЁТА ===
     report = (
-        f"╔═══════════════╗\n"
-        f"  💸 ИТОГИ МЕСЯЦА\n"
-        f"╚═══════════════╝\n\n"
-        f"📅 Месяц завершен.\n"
-        f"Зарплата переведена!\n\n"
-        f"🏆 ТОП АКТИВНЫХ:\n"
-        f"━━━━━━━━━━━━━━━\n"
+        f"╔═══════════════════════╗\n"
+        f"    💸 ВЫПЛАТА ЗАРПЛАТЫ\n"
+        f"╚═══════════════════════╝\n\n"
+        f"📅 Месяц завершён!\n"
+        f"💰 Зарплата переведена всем игрокам.\n\n"
+        f"┏━━━━ 🏆 ТОП АКТИВНЫХ ━━━━┓\n"
+        f"│\n"
     )
 
-    top_3 = ["🥇", "🥈", "🥉"]
+    medals = ["🥇", "🥈", "🥉"]
+    
+    # Выплачиваем зарплату и формируем топ
     for i, user in enumerate(users):
         amount = user.rp_pending_balance
+        
+        # Переводим с накопительного счёта на основной
         user.balance += amount
         user.rp_pending_balance = 0
-        user.rp_monthly_chars = 0 # Сброс
+        user.rp_monthly_chars = 0  # Сброс месячного счётчика символов
         await user.save()
         
-        # Обновляем карту
+        # Обновляем карточку игрока
         await auto_update_card(bot.api, user)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.5)  # Задержка, чтобы не перегрузить API
 
+        # Добавляем в топ первых 10 игроков
         if i < 10:
-            medal = top_3[i] if i < 3 else "🔸"
-            report += f"{medal} {user.first_name} — {amount} 💰\n"
+            if i < 3:
+                medal = medals[i]
+            else:
+                medal = f" {i+1}."
+            
+            report += f"│ {medal} {user.first_name}\n"
+            report += f"│    💰 {amount:,} чилликов\n"
+            report += f"│\n"
 
+    report += (
+        "┗━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n"
+        "📊 Всего игроков получили: {}\n\n"
+        "💡 Продолжай писать РП-посты,\n"
+        "   чтобы заработать больше!"
+    ).format(len(users))
+
+    # Публикуем отчёт в основной чат
     if MAIN_CHAT_ID != 0:
-        try: await bot.api.messages.send(peer_id=MAIN_CHAT_ID, message=report, random_id=0)
-        except: pass
+        try: 
+            await bot.api.messages.send(
+                peer_id=MAIN_CHAT_ID, 
+                message=report, 
+                random_id=0
+            )
+            print(f"✅ Отчёт опубликован в чат {MAIN_CHAT_ID}")
+        except Exception as e:
+            print(f"⚠️ Не удалось отправить отчёт в чат: {e}")
 
+    # Сохраняем метку о выплате
     last_payout.value = current_month_key
     await last_payout.save()
+    
+    print(f"✅ Зарплата выплачена {len(users)} игрокам")
