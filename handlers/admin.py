@@ -7,138 +7,196 @@ import re
 
 labeler = BotLabeler()
 
-# --- ⚙️ СПИСОК ИВЕНТОВ ---
-@labeler.message(regex=r"^!Ивенты$")
+# ═══════════════════════════════════════════════════════
+# 🎨 СТИЛЬНЫЕ РАМКИ
+# ═══════════════════════════════════════════════════════
+
+def create_header(title: str, icon: str = "✦") -> str:
+    """Создает красивый заголовок"""
+    line = "─" * 20
+    return f"╭{line}╮\n│ {icon} {title.center(16)} {icon} │\n╰{line}╯"
+
+# ═══════════════════════════════════════════════════════
+# ⚙️ КОМАНДА: СПИСОК ИВЕНТОВ
+# ═══════════════════════════════════════════════════════
+
+@labeler.message(regex=r"^!(?:И|и)венты$")
 async def list_events(message: Message):
-    if message.from_id not in ADMIN_IDS: return
+    if message.from_id not in ADMIN_IDS:
+        return
     
     events = await SystemConfig.filter(key__startswith="event_").all()
     
-    text = (
-        "╔═══════════════════════╗\n"
-        "    ⚙️ СПИСОК СОБЫТИЙ\n"
-        "╚═══════════════════════╝\n\n"
-    )
+    header = create_header("ИВЕНТЫ", "⚙️")
+    text = header + "\n\n"
     
     if not events:
-        text += "📭 Нет зарегистрированных ивентов.\n\n"
-        text += "💡 Создай первое событие командой:\n"
-        text += "   !Ивент [название] [вкл/выкл]"
+        text += "  📭 Нет зарегистрированных ивентов\n"
     else:
-        text += "┏━━━━ АКТИВНЫЕ СОБЫТИЯ ━━━━┓\n│\n"
+        text += "▸ АКТИВНЫЕ СОБЫТИЯ\n\n"
         for e in events:
+            # Превращаем "event_new_year" -> "New Year"
             name = e.key.replace("event_", "").replace("_", " ").title()
-            status = "🟢 Активен" if e.value == "True" else "🔴 Выключен"
-            text += f"│ 🎪 {name}\n│    {status}\n│\n"
-        text += "┗━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n"
-        text += "📝 Управление:\n"
-        text += "   !Ивент [название] [вкл/выкл]"
+            status = "🟢 Включен" if e.value == "True" else "🔴 Выключен"
+            text += f"  • {name}\n"
+            text += f"     ↳ {status}\n\n"
+    
+    text += (
+        "▸ УПРАВЛЕНИЕ\n"
+        "  Команда: !Ивент [имя] [вкл/выкл]\n"
+        "  Пример: !Ивент new_year вкл\n"
+    )
     
     await message.answer(text)
 
-# --- ⚙️ УПРАВЛЕНИЕ ИВЕНТОМ ---
-@labeler.message(regex=r"^!Ивент\s+(.*?)\s+(вкл|выкл)$")
+
+# ═══════════════════════════════════════════════════════
+# ⚙️ КОМАНДА: ПЕРЕКЛЮЧЕНИЕ ИВЕНТА
+# ═══════════════════════════════════════════════════════
+
+@labeler.message(regex=r"^!(?:И|и)вент\s+(.*?)\s+(вкл|выкл)$")
 async def toggle_event(message: Message, match):
-    if message.from_id not in ADMIN_IDS: return
+    if message.from_id not in ADMIN_IDS:
+        return
     
-    event_name = match[0] 
+    event_name = match[0].lower().replace(" ", "_")
     state = "True" if match[1].lower() == "вкл" else "False"
     
-    key = f"event_{event_name.lower().replace(' ', '_')}"
-    conf, created = await SystemConfig.get_or_create(key=key)
-    conf.value = state
-    await conf.save()
+    key = f"event_{event_name}"
+    conf, created = await SystemConfig.get_or_create(key=key, defaults={"value": state})
     
-    status_emoji = "🟢" if state == "True" else "🔴"
-    action = "ЗАПУЩЕНО" if state == "True" else "ОСТАНОВЛЕНО"
+    if not created:
+        conf.value = state
+        await conf.save()
     
-    await message.answer(
-        f"╔═══════════════════════╗\n"
-        f"    {status_emoji} СОБЫТИЕ {action}\n"
-        f"╚═══════════════════════╝\n\n"
-        f"📋 Название: {event_name.title()}\n"
-        f"⚙️ Статус: {state}\n\n"
-        f"✅ Настройки применены!"
-    )
+    status = "✅ Включен" if state == "True" else "❌ Выключен"
+    await message.answer(f"⚙️ Ивент '{event_name}': {status}")
     
-    # Объявление в основной чат
+    # Объявление в главный чат
     if MAIN_CHAT_ID != 0:
+        display_name = event_name.replace("_", " ").title()
+        
         if state == "True":
             announcement = (
-                f"╔═══════════════════════╗\n"
-                f"   🎉 СОБЫТИЕ НАЧАТО!\n"
-                f"╚═══════════════════════╝\n\n"
-                f"🎪 {event_name.upper()}\n\n"
-                f"✨ Событие официально запущено!\n\n"
-                f"┏━━━━ ЧТО ДОСТУПНО? ━━━━┓\n"
-                f"│\n"
-                f"│ 🎁 Кейсы за РП-посты\n"
-                f"│ ❤️ Кейсы за лайки\n"
-                f"│ 🎒 Новое меню «Подарки»\n"
-                f"│\n"
-                f"┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n"
-                f"🚀 Удачи в событии!\n"
-                f"@all"
+                f"{create_header(display_name.upper(), '🎄')}\n\n"
+                f"  ✨ Событие официально запущено!\n\n"
+                f"  🎁 Получайте кейсы за:\n"
+                f"     • РП-посты в чате\n"
+                f"     • Лайки на записи\n\n"
+                f"  🎉 В меню появилась кнопка «Подарки»\n\n"
+                f"  @all Удачи!\n"
             )
         else:
             announcement = (
-                f"╔═══════════════════════╗\n"
-                f"   🏁 СОБЫТИЕ ЗАВЕРШЕНО\n"
-                f"╚═══════════════════════╝\n\n"
-                f"🎪 {event_name.upper()}\n\n"
-                f"📊 Итоги:\n\n"
-                f"┏━━━━ ВАЖНО ━━━━┓\n"
-                f"│\n"
-                f"│ ❌ Выдача кейсов остановлена\n"
-                f"│ ✅ Инвентарь работает\n"
-                f"│ ✅ Открытие кейсов доступно\n"
-                f"│\n"
-                f"┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n"
-                f"🙏 Спасибо за участие!\n"
-                f"@all"
+                f"{create_header('ИВЕНТ ЗАВЕРШЕН', '🏁')}\n\n"
+                f"  📢 Событие \"{display_name}\" закончилось\n\n"
+                f"  ⚠️ Выдача кейсов остановлена\n"
+                f"  ✅ Инвентарь работает как прежде\n\n"
+                f"  Спасибо за участие! @all\n"
             )
-        try: 
-            await message.ctx_api.messages.send(peer_id=MAIN_CHAT_ID, message=announcement, random_id=0)
-        except: 
+        
+        try:
+            await message.ctx_api.messages.send(
+                peer_id=MAIN_CHAT_ID,
+                message=announcement,
+                random_id=0
+            )
+        except:
             pass
 
-@labeler.message(regex=r"^!СетФото\s+(.*?)$")
+
+# ═══════════════════════════════════════════════════════
+# 🖼️ КОМАНДА: УСТАНОВИТЬ ФОТО ДЛЯ КОМАНДЫ
+# ═══════════════════════════════════════════════════════
+
+@labeler.message(regex=r"^!(?:С|с)ет(?:Ф|ф)ото\s+(.+)$")
 async def set_cmd_photo(message: Message, match):
-    if message.from_id not in ADMIN_IDS: return
+    if message.from_id not in ADMIN_IDS:
+        return
+    
     cmd = match[0].lower()
     
     if not message.attachments or message.attachments[0].type != "photo":
-        return await message.answer(
-            "╔═══════════════════════╗\n"
-            "    ❌ ОШИБКА\n"
-            "╚═══════════════════════╝\n\n"
-            "📎 Прикрепи фото к команде!\n\n"
-            "💡 Пример:\n"
-            "   !СетФото помощь\n"
-            "   [прикрепить картинку]"
-        )
+        return await message.answer("❌ Прикрепи фото к команде")
     
     photo = message.attachments[0].photo
     photo_id = f"photo{photo.owner_id}_{photo.id}"
     
     key = f"img_{cmd}"
-    conf, _ = await SystemConfig.get_or_create(key=key)
+    conf, _ = await SystemConfig.get_or_create(key=key, defaults={"value": photo_id})
     conf.value = photo_id
     await conf.save()
     
-    await message.answer(
-        f"╔═══════════════════════╗\n"
-        f"    ✅ ФОТО УСТАНОВЛЕНО\n"
-        f"╚═══════════════════════╝\n\n"
-        f"🎨 Команда: {cmd}\n"
-        f"📸 ID: {photo_id}\n\n"
-        f"Картинка будет отображаться\n"
-        f"при вызове этой команды!"
+    header = create_header("СОХРАНЕНО", "✅")
+    text = (
+        f"{header}\n\n"
+        f"  🖼️ Команда: {cmd}\n"
+        f"  📎 ID: {photo_id}\n\n"
+        f"  Теперь это фото будет\n"
+        f"  показываться с командой!\n"
     )
+    await message.answer(text)
 
-@labeler.message(regex=r"^!Создать\s+(.*?)\s+(.*?)\s+(.*?)$")
+
+# ═══════════════════════════════════════════════════════
+# 🎁 КОМАНДА: ВЫДАТЬ КЕЙС
+# ═══════════════════════════════════════════════════════
+
+@labeler.message(regex=r"^!(?:В|в)ыдать\s+(.+?)(?:\s+(.+?))?(?:\s+(.+?))?$")
+async def admin_give_box(message: Message, match):
+    if message.from_id not in ADMIN_IDS:
+        return
+    
+    user_id = get_id_from_mention(match[0])
+    if not user_id:
+        return await message.answer("❌ Укажи пользователя")
+    
+    user = await User.get_or_none(vk_id=user_id)
+    if not user:
+        return await message.answer("❌ Пользователь не найден")
+    
+    # Параметры: редкость и тип (опционально)
+    rarity = Rarity.RARE
+    gift_type = GiftType.ITEM
+    
+    if match[1]:
+        try:
+            rarity = Rarity(match[1])
+        except:
+            pass
+    
+    if match[2]:
+        try:
+            gift_type = GiftType(match[2])
+        except:
+            pass
+    
+    box = await GiftBox.create(
+        user=user,
+        rarity=rarity,
+        gift_type=gift_type,
+        quantity=1
+    )
+    
+    header = create_header("КЕЙС ВЫДАН", "✅")
+    text = (
+        f"{header}\n\n"
+        f"  👤 Получатель: {user.first_name}\n"
+        f"  🎁 Тип: {gift_type.value}\n"
+        f"  ⭐ Редкость: {rarity.value}\n"
+    )
+    await message.answer(text)
+
+
+# ═══════════════════════════════════════════════════════
+# ⚔️ КОМАНДА: СОЗДАТЬ ПРЕДМЕТ
+# ═══════════════════════════════════════════════════════
+
+@labeler.message(regex=r"^!(?:С|с)оздать\s+(.+?)\s+(Обычный|Редкий|Эпический|Чилловый)\s+(Предмет|Талант|Способность)$")
 async def create_item_cmd(message: Message, match):
-    if message.from_id not in ADMIN_IDS: return
+    if message.from_id not in ADMIN_IDS:
+        return
+    
     name, r_str, t_str = match[0], match[1], match[2]
     
     try:
@@ -146,268 +204,300 @@ async def create_item_cmd(message: Message, match):
         t = ItemType(t_str)
         item = await Item.create(name=name, rarity=r, type=t)
         
-        await message.answer(
-            f"╔═══════════════════════╗\n"
-            f"    ✅ ПРЕДМЕТ СОЗДАН\n"
-            f"╚═══════════════════════╝\n\n"
-            f"┏━━━━ ПАРАМЕТРЫ ━━━━┓\n"
-            f"│\n"
-            f"│ 🏷 Название: {name}\n"
-            f"│ 🆔 ID: {item.id}\n"
-            f"│ ⭐ Редкость: {r_str}\n"
-            f"│ 📦 Тип: {t_str}\n"
-            f"│\n"
-            f"┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n"
-            f"💡 Предмет добавлен в базу!"
+        header = create_header("СОЗДАН", "✅")
+        text = (
+            f"{header}\n\n"
+            f"  📦 Предмет: {name}\n"
+            f"  🆔 ID: {item.id}\n"
+            f"  ⭐ Редкость: {r_str}\n"
+            f"  🎯 Тип: {t_str}\n"
         )
+        await message.answer(text)
     except Exception as e:
-        await message.answer(
-            f"╔═══════════════════════╗\n"
-            f"    ❌ ОШИБКА\n"
-            f"╚═══════════════════════╝\n\n"
-            f"⚠️ {str(e)}\n\n"
-            f"💡 Проверь параметры:\n"
-            f"   Ранг: Обычный/Редкий/Эпический\n"
-            f"   Тип: Предмет/Талант/Способность"
-        )
+        await message.answer(f"❌ Ошибка: {e}")
 
-@labeler.message(regex=r"^!Выдать\s+(.*?)(?:\s+(.*))?$")
-async def admin_give_box(message: Message, match):
-    if message.from_id not in ADMIN_IDS: return
-    user_id = get_id_from_mention(match[0])
-    if not user_id: return
-    
-    user = await User.get(vk_id=user_id)
-    box = await GiftBox.create(user=user, rarity=Rarity.RARE, gift_type=GiftType.ITEM, quantity=1)
-    
-    await message.answer(
-        f"╔═══════════════════════╗\n"
-        f"    🎁 КЕЙС ВЫДАН\n"
-        f"╚═══════════════════════╝\n\n"
-        f"👤 Получатель: {user.first_name}\n"
-        f"📦 Тип: Редкий предметный\n"
-        f"🆔 ID кейса: {box.id}\n\n"
-        f"✅ Игрок получил уведомление!"
-    )
 
-@labeler.message(regex=r"^(?i)Начислить\s+(.*?)\s+(\d+)$")
+# ═══════════════════════════════════════════════════════
+# 💰 КОМАНДА: НАЧИСЛИТЬ
+# ═══════════════════════════════════════════════════════
+
+@labeler.message(regex=r"^(?i)(?:Н|н)ачислить\s+(.+?)\s+(\d+)$")
 async def admin_give_money(message: Message, match):
-    if message.from_id not in ADMIN_IDS: return
+    if message.from_id not in ADMIN_IDS:
+        return
+    
     target_id = get_id_from_mention(match[0])
     amount = int(match[1])
-    if not target_id: return
     
-    user = await User.get_or_create(vk_id=target_id, defaults={"first_name": "Player", "last_name": "Player"})
-    user[0].balance += amount
-    await user[0].save()
-    await auto_update_card(message.ctx_api, user[0])
+    if not target_id:
+        return await message.answer("❌ Укажи пользователя")
     
-    await message.answer(
-        f"╔═══════════════════════╗\n"
-        f"    ✅ НАЧИСЛЕНО\n"
-        f"╚═══════════════════════╝\n\n"
-        f"👤 Игрок: {user[0].first_name}\n"
-        f"💰 Сумма: +{amount:,} чилликов\n"
-        f"📊 Новый баланс: {user[0].balance:,} ₽\n\n"
-        f"🔄 Карточка обновлена!"
+    user, _ = await User.get_or_create(
+        vk_id=target_id,
+        defaults={"first_name": "Player", "last_name": "Player"}
     )
+    
+    user.balance += amount
+    await user.save()
+    await auto_update_card(message.ctx_api, user)
+    
+    header = create_header("НАЧИСЛЕНО", "✅")
+    text = (
+        f"{header}\n\n"
+        f"  👤 Игрок: {user.first_name}\n"
+        f"  💰 Сумма: +{amount:,} ₽\n"
+        f"  📊 Новый баланс: {user.balance:,} ₽\n"
+    )
+    await message.answer(text)
 
-@labeler.message(regex=r"^(?i)Списать\s+(.*?)\s+(\d+)$")
+
+# ═══════════════════════════════════════════════════════
+# 💸 КОМАНДА: СПИСАТЬ
+# ═══════════════════════════════════════════════════════
+
+@labeler.message(regex=r"^(?i)(?:С|с)писать\s+(.+?)\s+(\d+)$")
 async def admin_remove(message: Message, match):
-    if message.from_id not in ADMIN_IDS: return
+    if message.from_id not in ADMIN_IDS:
+        return
+    
     target_id = get_id_from_mention(match[0])
     amount = int(match[1])
-    if not target_id: return
+    
+    if not target_id:
+        return await message.answer("❌ Укажи пользователя")
     
     user = await User.get_or_none(vk_id=target_id)
-    if not user: 
-        return await message.answer(
-            "╔═══════════════════════╗\n"
-            "    ❌ ОШИБКА\n"
-            "╚═══════════════════════╝\n\n"
-            "👤 Игрок не найден в базе!"
-        )
+    if not user:
+        return await message.answer("❌ Пользователь не найден в базе")
     
     user.balance -= amount
     await user.save()
     await auto_update_card(message.ctx_api, user)
     
-    await message.answer(
-        f"╔═══════════════════════╗\n"
-        f"    ✅ СПИСАНО\n"
-        f"╚═══════════════════════╝\n\n"
-        f"👤 Игрок: {user.first_name}\n"
-        f"💸 Сумма: -{amount:,} чилликов\n"
-        f"📊 Новый баланс: {user.balance:,} ₽\n\n"
-        f"🔄 Карточка обновлена!"
+    header = create_header("СПИСАНО", "✅")
+    text = (
+        f"{header}\n\n"
+        f"  👤 Игрок: {user.first_name}\n"
+        f"  💸 Сумма: -{amount:,} ₽\n"
+        f"  📊 Новый баланс: {user.balance:,} ₽\n"
     )
+    await message.answer(text)
 
-@labeler.message(regex=r"^(?i)Попущенный\s+(.*?)$")
+
+# ═══════════════════════════════════════════════════════
+# 🔨 КОМАНДА: БАН
+# ═══════════════════════════════════════════════════════
+
+@labeler.message(regex=r"^(?i)(?:П|п)опущенный\s+(.+)$")
 async def admin_ban(message: Message, match):
-    if message.from_id not in ADMIN_IDS: return
+    if message.from_id not in ADMIN_IDS:
+        return
+    
     target_id = get_id_from_mention(match[0])
     user = await User.get_or_none(vk_id=target_id)
     
     if user:
         user.is_banned = True
         await user.save()
-        await message.answer(
-            f"╔═══════════════════════╗\n"
-            f"    ⛔ БАН ВЫДАН\n"
-            f"╚═══════════════════════╝\n\n"
-            f"👤 Игрок: {user.first_name}\n"
-            f"🚫 Статус: Забанен\n\n"
-            f"Доступ к боту ограничен!"
+        
+        header = create_header("ЗАБАНЕН", "⛔")
+        text = (
+            f"{header}\n\n"
+            f"  👤 Игрок: {user.first_name}\n"
+            f"  🆔 ID: {user.vk_id}\n\n"
+            f"  Доступ к боту заблокирован\n"
         )
+        await message.answer(text)
 
-@labeler.message(regex=r"^(?i)Разбан\s+(.*?)$")
+
+# ═══════════════════════════════════════════════════════
+# ✅ КОМАНДА: РАЗБАН
+# ═══════════════════════════════════════════════════════
+
+@labeler.message(regex=r"^(?i)(?:Р|р)азбан\s+(.+)$")
 async def admin_unban(message: Message, match):
-    if message.from_id not in ADMIN_IDS: return
+    if message.from_id not in ADMIN_IDS:
+        return
+    
     target_id = get_id_from_mention(match[0])
     user = await User.get_or_none(vk_id=target_id)
     
     if user:
         user.is_banned = False
         await user.save()
-        await message.answer(
-            f"╔═══════════════════════╗\n"
-            f"    ✅ РАЗБАНЕН\n"
-            f"╚═══════════════════════╝\n\n"
-            f"👤 Игрок: {user.first_name}\n"
-            f"🟢 Статус: Активен\n\n"
-            f"Доступ к боту восстановлен!"
+        
+        header = create_header("РАЗБАНЕН", "✅")
+        text = (
+            f"{header}\n\n"
+            f"  👤 Игрок: {user.first_name}\n"
+            f"  🆔 ID: {user.vk_id}\n\n"
+            f"  Доступ восстановлен\n"
         )
+        await message.answer(text)
 
-@labeler.message(regex=r"^(?i)Рассылка\s+(.*)$")
+
+# ═══════════════════════════════════════════════════════
+# 📢 КОМАНДА: РАССЫЛКА
+# ═══════════════════════════════════════════════════════
+
+@labeler.message(regex=r"^(?i)(?:Р|р)ассылка\s+(.+)$")
 async def admin_broadcast(message: Message, match):
-    if message.from_id not in ADMIN_IDS: return
-    text = match[0]
-    users = await User.all()
+    if message.from_id not in ADMIN_IDS:
+        return
     
-    await message.answer(
-        f"╔═══════════════════════╗\n"
-        f"    📢 РАССЫЛКА\n"
-        f"╚═══════════════════════╝\n\n"
-        f"👥 Получателей: {len(users)}\n"
-        f"📨 Сообщение:\n\n"
-        f"{text}\n\n"
-        f"⏳ Отправка начата..."
+    text_to_send = match[0]
+    users = await User.filter(is_banned=False).all()
+    
+    header = create_header("РАССЫЛКА", "📢")
+    progress_text = (
+        f"{header}\n\n"
+        f"  📤 Отправка {len(users)} пользователям...\n"
     )
+    await message.answer(progress_text)
     
-    sent = 0
+    success = 0
+    failed = 0
+    
+    broadcast_msg = f"📢 ОБЪЯВЛЕНИЕ\n━━━━━━━━━━━━━━━\n\n{text_to_send}"
+    
     for user in users:
-        try: 
+        try:
             await message.ctx_api.messages.send(
-                peer_id=user.vk_id, 
-                message=f"📢 ОБЪЯВЛЕНИЕ\n\n{text}", 
+                peer_id=user.vk_id,
+                message=broadcast_msg,
                 random_id=0
             )
-            sent += 1
-        except: 
-            pass
+            success += 1
+        except:
+            failed += 1
     
-    await message.answer(
-        f"✅ Рассылка завершена!\n"
-        f"📨 Отправлено: {sent}/{len(users)}"
+    result_text = (
+        f"{header}\n\n"
+        f"  ✅ Успешно: {success}\n"
+        f"  ❌ Ошибок: {failed}\n"
     )
+    await message.answer(result_text)
 
-@labeler.message(regex=r"^(?i)Связать\s+(.*)$")
+
+# ═══════════════════════════════════════════════════════
+# 🔗 КОМАНДА: СВЯЗАТЬ КАРТОЧКУ
+# ═══════════════════════════════════════════════════════
+
+@labeler.message(regex=r"^(?i)(?:С|с)вязать\s+(.+)$")
 async def link_card(message: Message, match):
-    if message.from_id not in ADMIN_IDS: return
+    if message.from_id not in ADMIN_IDS:
+        return
+    
     full_text = match[0]
     
+    # Ищем photo ID
     photo_match = re.search(r"photo(-?\d+_\d+)", full_text)
     
-    if not photo_match: 
-        return await message.answer(
-            "╔═══════════════════════╗\n"
-            "    ❌ ОШИБКА\n"
-            "╚═══════════════════════╝\n\n"
-            "📸 Не найден ID фото!\n\n"
-            "💡 Примеры:\n"
-            "   Связать photo-123_456 @user\n"
-            "   Связать vk.com/photo-123_456 @user"
+    if not photo_match:
+        help_text = (
+            "❌ Не найден ID фото\n\n"
+            "▸ ПРИМЕРЫ:\n"
+            "  • Связать photo-123_456 @user\n"
+            "  • Связать vk.com/photo-123_456 @user\n"
         )
+        return await message.answer(help_text)
     
+    # Ищем пользователя
     target_id = None
     for word in full_text.split():
         uid = get_id_from_mention(word)
-        if uid: 
+        if uid:
             target_id = uid
             break
     
-    if not target_id: 
-        return await message.answer(
-            "╔═══════════════════════╗\n"
-            "    ❌ ОШИБКА\n"
-            "╚═══════════════════════╝\n\n"
-            "👤 Укажи пользователя!\n\n"
-            "💡 Пример:\n"
-            "   Связать photo-123_456 @user"
-        )
+    if not target_id:
+        return await message.answer("❌ Укажи пользователя")
     
-    user = await User.get(vk_id=target_id)
+    user = await User.get_or_none(vk_id=target_id)
+    if not user:
+        return await message.answer("❌ Пользователь не найден")
+    
     user.card_photo_id = photo_match.group(1)
     await user.save()
     
-    await message.answer(
-        f"╔═══════════════════════╗\n"
-        f"    ✅ КАРТА СВЯЗАНА\n"
-        f"╚═══════════════════════╝\n\n"
-        f"👤 Игрок: {user.first_name}\n"
-        f"📸 Фото: {photo_match.group(1)}\n\n"
-        f"🔄 Обновление карточки..."
+    header = create_header("СВЯЗАНО", "✅")
+    text = (
+        f"{header}\n\n"
+        f"  👤 Игрок: {user.first_name}\n"
+        f"  📎 Фото: {photo_match.group(1)}\n\n"
+        f"  Обновляю карточку...\n"
     )
-    
-    await auto_update_card(message.ctx_api, user)
+    await message.answer(text)
+    await auto_update_card(message.ctx_api, user, message)
+
+
+# ═══════════════════════════════════════════════════════
+# 💵 КОМАНДА: ПРИНУДИТЕЛЬНАЯ ЗАРПЛАТА
+# ═══════════════════════════════════════════════════════
 
 @labeler.message(text="!Принудительная зарплата")
 async def force_salary_cmd(message: Message):
-    if message.from_id not in ADMIN_IDS: return
+    if message.from_id not in ADMIN_IDS:
+        return
     
-    conf, _ = await SystemConfig.get_or_create(key="last_salary_month")
+    conf, _ = await SystemConfig.get_or_create(key="last_salary_month", defaults={"value": ""})
     conf.value = "RESET"
     await conf.save()
     
-    await message.answer(
-        "╔═══════════════════════╗\n"
-        "    ✅ СБРОС ВЫПОЛНЕН\n"
-        "╚═══════════════════════╝\n\n"
-        "💰 Метка зарплаты сброшена!\n\n"
-        "⏰ Следующая проверка:\n"
-        "   • В течение часа\n"
-        "   • При перезапуске бота\n\n"
-        "💡 Зарплата будет выплачена\n"
-        "   автоматически!"
+    header = create_header("СБРОШЕНО", "✅")
+    text = (
+        f"{header}\n\n"
+        f"  📅 Метка зарплаты сброшена\n\n"
+        f"  ⏰ Зарплата будет выдана в\n"
+        f"     следующем цикле (через час)\n"
+        f"     или после перезагрузки бота\n"
     )
+    await message.answer(text)
 
-@labeler.message(regex=r"^(?i)Промокод\s+(\w+)\s+(\d+)\s+(\d+)$")
+
+# ═══════════════════════════════════════════════════════
+# 🎫 КОМАНДА: ПРОМОКОД
+# ═══════════════════════════════════════════════════════
+
+@labeler.message(regex=r"^(?i)(?:П|п)ромокод\s+(\w+)\s+(\d+)\s+(\d+)$")
 async def create_promo(message: Message, match):
-    if message.from_id not in ADMIN_IDS: return
-    code, amount, max_uses = match[0], int(match[1]), int(match[2])
+    if message.from_id not in ADMIN_IDS:
+        return
     
-    await Promo.create(code=code, amount=amount, max_activations=max_uses)
+    code, amount, max_act = match[0], int(match[1]), int(match[2])
     
-    await message.answer(
-        f"╔═══════════════════════╗\n"
-        f"    🎫 ПРОМОКОД СОЗДАН\n"
-        f"╚═══════════════════════╝\n\n"
-        f"┏━━━━ ПАРАМЕТРЫ ━━━━┓\n"
-        f"│\n"
-        f"│ 🎟 Код: {code}\n"
-        f"│ 💰 Награда: {amount:,} ₽\n"
-        f"│ 👥 Активаций: {max_uses}\n"
-        f"│\n"
-        f"┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n"
-        f"📢 Распространи промокод игрокам!"
+    await Promo.create(
+        code=code,
+        amount=amount,
+        max_activations=max_act
     )
+    
+    header = create_header("ПРОМОКОД", "🎫")
+    text = (
+        f"{header}\n\n"
+        f"  🎟️ Код: {code}\n"
+        f"  💰 Сумма: {amount:,} ₽\n"
+        f"  🔢 Активаций: {max_act}\n\n"
+        f"  ✅ Промокод создан!\n"
+    )
+    await message.answer(text)
 
-@labeler.message(regex=r"^(?i)Стоимость:\s+(\d+)$")
+
+# ═══════════════════════════════════════════════════════
+# 💲 КОМАНДА: СТОИМОСТЬ (ДЛЯ ЗАЯВОК)
+# ═══════════════════════════════════════════════════════
+
+@labeler.message(regex=r"^(?i)(?:С|с)тоимость:\s+(\d+)$")
 async def set_price(message: Message, match):
-    if message.from_id not in ADMIN_IDS: return
-    if not message.reply_message: return
+    if message.from_id not in ADMIN_IDS:
+        return
+    
+    if not message.reply_message:
+        return await message.answer("❌ Ответь на заявку")
     
     price = int(match[0])
+    
+    # Ищем ID заявки
     req_match = re.search(r"ЗАЯВКА №(\d+)", message.reply_message.text)
     user_match = re.search(r"\[id(\d+)\|", message.reply_message.text)
     
@@ -420,42 +510,36 @@ async def set_price(message: Message, match):
     
     if user_match:
         target_id = int(user_match.group(1))
-        try: 
+        try:
+            user = await User.get(vk_id=target_id)
+            notification = (
+                f"{create_header('ОЦЕНКА ТОВАРА', '💰')}\n\n"
+                f"  🛒 Твоя заявка оценена!\n"
+                f"  💵 Стоимость: {price:,} ₽\n\n"
+                f"  Подтверди покупку, написав админу\n"
+            )
             await message.ctx_api.messages.send(
-                peer_id=target_id, 
-                message=(
-                    f"╔═══════════════════════╗\n"
-                    f"    💰 ОЦЕНКА ТОВАРА\n"
-                    f"╚═══════════════════════╝\n\n"
-                    f"✅ Администратор оценил заявку!\n\n"
-                    f"┏━━━━ СТОИМОСТЬ ━━━━┓\n"
-                    f"│\n"
-                    f"│ 💵 Цена: {price:,} чилликов\n"
-                    f"│\n"
-                    f"┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n"
-                    f"💡 Свяжись с администратором\n"
-                    f"   для завершения покупки!"
-                ), 
+                peer_id=target_id,
+                message=notification,
                 random_id=0
             )
-        except: 
+        except:
             pass
     
-    await message.answer(
-        f"╔═══════════════════════╗\n"
-        f"    ✅ ЦЕНА УСТАНОВЛЕНА\n"
-        f"╚═══════════════════════╝\n\n"
-        f"💰 Стоимость: {price:,} ₽\n\n"
-        f"📨 Игрок получил уведомление!"
-    )
-    
+    await message.answer(f"✅ Цена установлена: {price:,} ₽")
+
+
+# ═══════════════════════════════════════════════════════
+# 🆔 КОМАНДА: УЗНАТЬ ID ЧАТА
+# ═══════════════════════════════════════════════════════
+
 @labeler.message(text="!id")
 async def get_chat_id(message: Message):
-    await message.answer(
-        f"╔═══════════════════════╗\n"
-        f"    🆔 ID ЧАТА\n"
-        f"╚═══════════════════════╝\n\n"
-        f"📋 Текущий чат:\n"
-        f"   {message.peer_id}\n\n"
-        f"💡 Используй это значение в настройках!"
+    header = create_header("ID ЧАТА", "🆔")
+    text = (
+        f"{header}\n\n"
+        f"  📍 ID этого чата: {message.peer_id}\n\n"
+        f"  Используй это значение\n"
+        f"  в настройках бота\n"
     )
+    await message.answer(text)
