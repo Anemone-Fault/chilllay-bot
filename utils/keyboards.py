@@ -3,16 +3,20 @@ from database.models import User, SystemConfig
 from datetime import datetime, timezone, timedelta
 
 async def get_smart_keyboard(user: User, menu_type: str = "main") -> str:
-    """Генерирует JSON клавиатуры в зависимости от контекста."""
-    kb = Keyboard(one_time=False, inline=False)
+    """
+    Генерирует JSON клавиатуры (INLINE - на сообщении).
+    """
+    # ВАЖНО: inline=True делает кнопки "на сообщении"
+    kb = Keyboard(one_time=False, inline=True)
     
-    # Статус ивента
+    # 1. Проверяем статус ивента
     event_conf = await SystemConfig.get_or_none(key="event_new_year")
     is_event_active = event_conf and event_conf.value == "True"
 
-    # Бонус
+    # 2. Проверяем бонус
     bonus_label = "🎁 Бонус"
     bonus_color = KeyboardButtonColor.POSITIVE
+    
     if user.last_bonus:
         now = datetime.now(timezone.utc)
         diff = now - user.last_bonus
@@ -36,7 +40,7 @@ async def get_smart_keyboard(user: User, menu_type: str = "main") -> str:
         kb.row()
         kb.add(Text("📚 Помощь"), color=KeyboardButtonColor.SECONDARY)
 
-    elif menu_type == "main": # Для команды Баланс
+    elif menu_type == "main": # Для Баланса и других
         kb.add(Text("👤 Профиль"), color=KeyboardButtonColor.PRIMARY)
         kb.add(Text("🎒 Инвентарь"), color=KeyboardButtonColor.PRIMARY)
         kb.row()
