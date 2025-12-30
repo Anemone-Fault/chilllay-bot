@@ -26,45 +26,112 @@ bot.labeler.message_view.register_middleware(SystemMiddleware)
 # --- Хендлер Лайков (Дроп) ---
 @bot.on.raw_event(GroupEventType.LIKE_ADD, dataclass=None)
 async def handle_like(event: dict):
+    """
+    Обработчик лайков на записях сообщества.
+    
+    При активном ивенте с шансом 20% даёт игроку
+    обычный денежный кейс за каждый лайк.
+    
+    Проверяет:
+    - Лайк от реального пользователя (не от сообщества)
+    - Лайк на пост (а не комментарий/фото)
+    - Активность новогоднего ивента
+    - Случайный шанс 20%
+    """
     obj = event["object"]
-    if obj["liker_id"] < 0 or obj["object_type"] != "post": return
+    
+    # Игнорируем лайки от сообществ и не на посты
+    if obj["liker_id"] < 0 or obj["object_type"] != "post": 
+        return
 
-    # Проверка ивента
+    # Проверка активности ивента
     event_conf = await SystemConfig.get_or_none(key="event_new_year")
-    if not event_conf or event_conf.value != "True": return
+    if not event_conf or event_conf.value != "True": 
+        return
 
-    if random.random() > 0.20: return # 20% шанс
+    # Шанс дропа 20%
+    if random.random() > 0.20: 
+        return
 
     user = await User.get_or_none(vk_id=obj["liker_id"])
     if user:
-        box, _ = await GiftBox.get_or_create(user=user, rarity=Rarity.COMMON, gift_type=GiftType.MONEY)
+        # Создаём или добавляем обычный денежный кейс
+        box, _ = await GiftBox.get_or_create(
+            user=user, 
+            rarity=Rarity.COMMON, 
+            gift_type=GiftType.MONEY
+        )
         box.quantity += 1
         await box.save()
-        try: await bot.api.messages.send(peer_id=user.vk_id, message="❤️ За лайк выпал кейс! Пиши /инвентарь", random_id=0)
-        except: pass
-        # Обновляем карту (на всякий случай)
+        
+        # Уведомляем игрока
+        try: 
+            await bot.api.messages.send(
+                peer_id=user.vk_id, 
+                message=(
+                    "╔═══════════════════════╗\n"
+                    "    🎁 КЕЙС ВЫПАЛ!\n"
+                    "╚═══════════════════════╝\n\n"
+                    "❤️ За лайк ты получил кейс!\n\n"
+                    "┏━━━━ НАГРАДА ━━━━┓\n"
+                    "│\n"
+                    "│ 🎁 Тип: Денежный\n"
+                    "│ ⚪ Ранг: Обычный\n"
+                    "│ 📦 Количество: x1\n"
+                    "│\n"
+                    "┗━━━━━━━━━━━━━━━━━━━━━━━┛\n\n"
+                    "💡 Открой его командой:\n"
+                    "   Инвентарь\n\n"
+                    "🎉 Ставь больше лайков для\n"
+                    "   новых кейсов!"
+                ), 
+                random_id=0
+            )
+        except: 
+            # Игнорируем ошибки (закрытые ЛС и т.д.)
+            pass
+        
+        # Обновляем карточку игрока
         await auto_update_card(bot.api, user)
 
 # --- Настройки ---
 async def init_db():
-    print("💾 DB Connecting...")
-    await Tortoise.init(db_url=DATABASE_URL, modules={'models': ['database.models']})
+    """Инициализация базы данных Tortoise ORM"""
+    print("💾 Подключение к базе данных...")
+    await Tortoise.init(
+        db_url=DATABASE_URL, 
+        modules={'models': ['database.models']}
+    )
     await Tortoise.generate_schemas()
-    print("✅ DB Ready")
+    print("✅ База данных готова к работе")
 
 async def scheduler_loop():
+    """
+    Планировщик задач.
+    
+    Проверяет каждый час:
+    - Необходимость выплаты месячной зарплаты
+    - Другие периодические задачи
+    """
     while True:
-        await asyncio.sleep(60) 
+        await asyncio.sleep(60)  # Начальная задержка
         try:
             await salary_worker.check_and_pay_salary(bot)
         except Exception as e:
-            print(f"Scheduler error: {e}")
-        await asyncio.sleep(3600) 
+            print(f"⚠️ Ошибка планировщика: {e}")
+        await asyncio.sleep(3600)  # Проверка раз в час
 
 async def handle_ping(request):
+    """Проверка работоспособности бота (для хостинга)"""
     return web.Response(text="Bot is alive.")
 
 async def start_web_server():
+    """
+    Запуск веб-сервера для проверки статуса.
+    
+    Необходим для облачных хостингов (Heroku, Railway и т.д.),
+    которые требуют HTTP-ответов для определения работоспособности.
+    """
     app = web.Application()
     app.router.add_get("/", handle_ping)
     runner = web.AppRunner(app)
@@ -72,7 +139,7 @@ async def start_web_server():
     port = int(os.environ.get("PORT", 8080))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    print(f"🌍 Web server running on port {port}")
+    print(f"🌍 Веб-сервер запущен на порту {port}")
 
 if __name__ == "__main__":
     loop = asyncio.new_event_loop()
@@ -85,5 +152,5 @@ if __name__ == "__main__":
     # Чтобы бот использовал тот же луп
     bot.loop_wrapper.loop = loop
     
-    print("🚀 Bot Started")
+    print("🚀 Бот запущен и готов к работе!")
     bot.run_forever()
