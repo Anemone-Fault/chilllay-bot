@@ -5,106 +5,117 @@ from settings import MAIN_CHAT_ID
 from datetime import datetime
 import asyncio
 
+
 async def check_and_pay_salary(bot: Bot):
     """
-    Проверка и выплата месячной зарплаты.
-    
-    Функция вызывается каждый час планировщиком.
-    Проверяет, не наступил ли новый месяц, и если да —
-    выплачивает всем игрокам накопленную зарплату за РП-активность.
-    
-    Процесс:
-    1. Сравнивает текущий месяц с последней выплатой
-    2. Если месяц новый — начисляет rp_pending_balance на основной счёт
-    3. Обнуляет месячные счётчики (rp_pending_balance и rp_monthly_chars)
-    4. Публикует отчёт с топом самых активных игроков
-    5. Обновляет карточки всех игроков
+    Проверяет и выплачивает зарплату в начале нового месяца.
     """
     now = datetime.now()
-    current_month_key = f"{now.year}-{now.month}" 
+    current_month_key = f"{now.year}-{now.month}"
     
-    # Проверяем, была ли уже выплата в этом месяце
+    # Получаем метку последней выплаты
     last_payout, _ = await SystemConfig.get_or_create(
-        key="last_salary_month", 
+        key="last_salary_month",
         defaults={"value": ""}
     )
 
-    # Если уже была выплата в этом месяце — ничего не делаем
+    # Если в этом месяце уже платили, выходим
     if last_payout.value == current_month_key:
         return
 
-    # === ВЫДАЧА ЗАРПЛАТЫ ===
-    print("💰 Начало выплаты месячной зарплаты...")
+    # ВЫДАЧА ЗАРПЛАТЫ
+    print("╔═════════════════════╗")
+    print("║  💰 ВЫДАЧА ЗАРПЛАТ   ║")
+    print("╚═════════════════════╝")
+    print(f"\n📅 Дата: {now.strftime('%d.%m.%Y %H:%M')}")
+    print(f"🗓 Месяц: {current_month_key}\n")
     
-    # Получаем всех игроков с накопленной зарплатой, отсортированных по активности
+    # Получаем игроков с зарплатой
     users = await User.filter(rp_pending_balance__gt=0).order_by("-rp_monthly_chars").all()
     
     if not users:
-        # Никто не заработал в этом месяце
+        print("⚠️ Нет игроков с зарплатой!")
         last_payout.value = current_month_key
         await last_payout.save()
-        print("💤 Нет игроков с накопленной зарплатой")
         return
 
-    # === ФОРМИРОВАНИЕ ОТЧЁТА ===
+    print(f"👥 Найдено игроков: {len(users)}\n")
+    print("{'═' * 40}\n")
+
+    # Формируем отчет
+    total_paid = 0
+    top_3_medals = ["🥇", "🥈", "🥉"]
+    
     report = (
-        f"╔═══════════════════════╗\n"
-        f"    💸 ВЫПЛАТА ЗАРПЛАТЫ\n"
-        f"╚═══════════════════════╝\n\n"
-        f"📅 Месяц завершён!\n"
-        f"💰 Зарплата переведена всем игрокам.\n\n"
-        f"┏━━━━ 🏆 ТОП АКТИВНЫХ ━━━━┓\n"
-        f"│\n"
+        "╔═════════════════════╗\n"
+        "║  💸 ИТОГИ МЕСЯЦА     ║\n"
+        "╚═════════════════════╝\n\n"
+        "📅 Месяц завершен!\n"
+        "💰 Зарплата переведена!\n\n"
+        "{'═' * 25}\n\n"
+        "┌─ 🏆 ТОП АКТИВНЫХ\n"
+        "│\n"
     )
 
-    medals = ["🥇", "🥈", "🥉"]
-    
-    # Выплачиваем зарплату и формируем топ
+    # Выплачиваем и формируем топ
     for i, user in enumerate(users):
         amount = user.rp_pending_balance
+        chars_count = user.rp_monthly_chars
         
-        # Переводим с накопительного счёта на основной
+        # Переводим зарплату
         user.balance += amount
         user.rp_pending_balance = 0
-        user.rp_monthly_chars = 0  # Сброс месячного счётчика символов
+        user.rp_monthly_chars = 0
         await user.save()
         
-        # Обновляем карточку игрока
+        total_paid += amount
+        
+        # Обновляем карту
         await auto_update_card(bot.api, user)
-        await asyncio.sleep(0.5)  # Задержка, чтобы не перегрузить API
+        await asyncio.sleep(0.5)  # Защита от флуда
 
-        # Добавляем в топ первых 10 игроков
+        # Добавляем в отчет топ-10
         if i < 10:
-            if i < 3:
-                medal = medals[i]
-            else:
-                medal = f" {i+1}."
+            medal = top_3_medals[i] if i < 3 else f"├─ {i+1}."
+            report += f"{medal} {user.first_name}\n"
+            report += f"│  ├─ Получено: {amount:,}₽\n"
+            report += f"│  └─ Символов: {chars_count:,}\n"
             
-            report += f"│ {medal} {user.first_name}\n"
-            report += f"│    💰 {amount:,} чилликов\n"
-            report += f"│\n"
+            if i == 2:  # После топ-3
+                report += "│\n"
+                report += f"├─ {'─' * 21}\n"
+                report += "│\n"
+        
+        print(f"✅ {i+1}. {user.first_name} - {amount:,}₽ (символов: {chars_count:,})")
 
-    report += (
-        "┗━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n"
-        "📊 Всего игроков получили: {}\n\n"
-        "💡 Продолжай писать РП-посты,\n"
-        "   чтобы заработать больше!"
-    ).format(len(users))
+    report += "│\n"
+    report += f"└─ {'─' * 21}\n\n"
+    report += f"{'═' * 25}\n\n"
+    report += f"💵 Всего выплачено:\n"
+    report += f"   {total_paid:,}₽\n\n"
+    report += f"👥 Получило зарплату:\n"
+    report += f"   {len(users)} игроков\n\n"
+    report += f"{'═' * 25}\n\n"
+    report += "Красавчики! Проебете? 💸\n\n"
+    report += "P.S. Начинаем новый месяц!\n"
+    report += "     Фармите РП-посты! 📝"
 
-    # Публикуем отчёт в основной чат
+    # Отправляем отчет в чат
     if MAIN_CHAT_ID != 0:
-        try: 
+        try:
             await bot.api.messages.send(
-                peer_id=MAIN_CHAT_ID, 
-                message=report, 
+                peer_id=MAIN_CHAT_ID,
+                message=report,
                 random_id=0
             )
-            print(f"✅ Отчёт опубликован в чат {MAIN_CHAT_ID}")
+            print(f"\n📢 Отчет отправлен в чат {MAIN_CHAT_ID}")
         except Exception as e:
-            print(f"⚠️ Не удалось отправить отчёт в чат: {e}")
+            print(f"\n⚠️ Не удалось отправить отчет в чат: {e}")
 
-    # Сохраняем метку о выплате
+    # Обновляем метку выплаты
     last_payout.value = current_month_key
     await last_payout.save()
     
-    print(f"✅ Зарплата выплачена {len(users)} игрокам")
+    print("\n{'═' * 40}")
+    print("✅ Зарплата успешно выплачена!")
+    print("{'═' * 40}\n")
