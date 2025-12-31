@@ -9,97 +9,113 @@ import asyncio
 
 labeler = BotLabeler()
 
-# ═══════════════════════════════════════════════════════
-# 🎨 СТИЛЬНЫЕ РАМКИ
-# ═══════════════════════════════════════════════════════
 
-def create_header(title: str, icon: str = "✦") -> str:
-    """Создает красивый заголовок"""
-    line = "─" * 20
-    return f"╭{line}╮\n│ {icon} {title.center(16)} {icon} │\n╰{line}╯"
+# ====================
+# 🎒 ИНВЕНТАРЬ
+# ====================
 
-# ═══════════════════════════════════════════════════════
-# 🎒 КОМАНДА: ИНВЕНТАРЬ
-# ═══════════════════════════════════════════════════════
-
-@labeler.message(regex=r"^(?i)(?:🎒\s*)?(?:Инвентарь|Сумка|Inventory)$")
+@labeler.message(regex=r"^(?i)(?:Инвентарь|Сумка|Inventory|🎒 Инвентарь)$")
 async def show_inventory(message: Message):
     user_db = await User.get(vk_id=message.from_id)
     inv_items = await Inventory.filter(user=user_db).prefetch_related("item").all()
     gifts = await GiftBox.filter(user=user_db, quantity__gt=0).all()
 
-    header = create_header("РЮКЗАК", "🎒")
-    text = header + "\n\n"
+    text = (
+        f"╔═════════════════════╗\n"
+        f"║   🎒 РЮКЗАК БАРАХЛА  ║\n"
+        f"╚═════════════════════╝\n\n"
+    )
 
-    # Пустой инвентарь
+    # Проверка на пустоту
     if not inv_items and not gifts:
         text += (
-            "  🕸 Здесь пусто как в голове...\n\n"
-            "  💡 КАК ПОЛУЧИТЬ ПРЕДМЕТЫ:\n"
-            "  • Пиши РП-посты в чате\n"
-            "  • Ставь лайки на посты\n"
-            "  • Открывай кейсы\n\n"
-            "  🎁 За активность выпадают кейсы!\n"
+            "🕸️ Тут паутина и пустота...\n\n"
+            "Где твои вещи, бомж? 🤡\n\n"
+            "{'─' * 25}\n\n"
+            "💡 КАК ПОЛУЧИТЬ ПРЕДМЕТЫ:\n\n"
+            "• Пиши РП-посты (за них\n"
+            "  выпадают кейсы)\n\n"
+            "• Лайкай посты группы\n"
+            "  (20% шанс кейса)\n\n"
+            "• Участвуй в ивентах\n\n"
+            "Иди работай, лентяй! 🦥"
         )
         return await message.answer(text, keyboard=await get_smart_keyboard(user_db, "main"))
 
     # Кейсы
     if gifts:
-        text += "▸ КЕЙСЫ\n"
-        rarity_icons = {
-            Rarity.COMMON: "⚪",
-            Rarity.RARE: "🔵",
-            Rarity.EPIC: "🟣",
-            Rarity.CHILL: "🌟"
-        }
+        text += "┌─ 🎁 КЕЙСЫ\n│\n"
+        
+        total_boxes = sum(g.quantity for g in gifts)
+        text += f"│  Всего: {total_boxes} шт.\n│\n"
         
         for g in gifts:
-            icon = rarity_icons.get(g.rarity, "📦")
-            text += f"  {icon} {g.gift_type.value}\n"
-            text += f"     ↳ {g.rarity.value} × {g.quantity} шт.\n"
-        text += "\n"
+            rarity_emoji = {
+                Rarity.COMMON: "⚪",
+                Rarity.RARE: "🔵",
+                Rarity.EPIC: "🟣",
+                Rarity.CHILL: "🟡"
+            }.get(g.rarity, "⚫")
+            
+            type_emoji = {
+                GiftType.MONEY: "💰",
+                GiftType.ITEM: "📦",
+                GiftType.TALENT: "✨",
+                GiftType.LUCKY: "🍀",
+                GiftType.FATE: "🔮"
+            }.get(g.gift_type, "🎁")
+            
+            text += f"├─ {type_emoji} {g.gift_type.value}\n"
+            text += f"│  └─ {rarity_emoji} {g.rarity.value} × {g.quantity}\n"
+        
+        text += "│\n"
+        text += f"└─ {'─' * 21}\n\n"
 
     # Предметы
     if inv_items:
-        text += "▸ КОЛЛЕКЦИЯ\n"
-        type_icons = {
-            ItemType.ITEM: "⚔️",
-            ItemType.TALENT: "✨",
-            ItemType.ABILITY: "🔮"
-        }
+        text += "┌─ 📦 ПРЕДМЕТЫ\n│\n"
         
-        # Группируем по типам
-        by_type = {}
+        total_items = sum(slot.quantity for slot in inv_items)
+        text += f"│  Всего: {total_items} шт.\n│\n"
+        
         for slot in inv_items:
-            item_type = slot.item.type
-            if item_type not in by_type:
-                by_type[item_type] = []
-            by_type[item_type].append(slot)
-        
-        for item_type, items in by_type.items():
-            type_icon = type_icons.get(item_type, "📦")
-            type_name = item_type.value
-            text += f"\n  {type_icon} {type_name.upper()}\n"
+            type_emoji = {
+                ItemType.ITEM: "⚔️",
+                ItemType.TALENT: "✨",
+                ItemType.ABILITY: "🔮"
+            }.get(slot.item.type, "📦")
             
-            for slot in items:
-                rarity_badge = {"Обычный": "●", "Редкий": "◆", "Эпический": "★", "Чилловый": "✦"}
-                badge = rarity_badge.get(slot.item.rarity.value, "●")
-                text += f"     {badge} {slot.item.name} × {slot.quantity}\n"
+            rarity_emoji = {
+                Rarity.COMMON: "⚪",
+                Rarity.RARE: "🔵",
+                Rarity.EPIC: "🟣",
+                Rarity.CHILL: "🟡"
+            }.get(slot.item.rarity, "⚫")
+            
+            text += f"├─ {type_emoji} {slot.item.name}\n"
+            text += f"│  ├─ {rarity_emoji} {slot.item.rarity.value}\n"
+            text += f"│  └─ Количество: {slot.quantity} шт.\n"
+        
+        text += "│\n"
+        text += f"└─ {'─' * 21}\n"
     
-    text += f"\n  📊 Всего предметов: {len(inv_items)}\n"
-    text += f"  🎁 Всего кейсов: {sum(g.quantity for g in gifts)}\n"
-    
-    # Кнопки
+    # Кнопка открытия
     kb = Keyboard(inline=True)
     if gifts:
-        kb.add(Text("🎁 Открыть кейс", payload={"cmd": "open_menu"}), color=KeyboardButtonColor.POSITIVE)
+        kb.add(
+            Text("🎁 Открыть кейс", payload={"cmd": "open_menu"}),
+            color=KeyboardButtonColor.POSITIVE
+        )
+        kb.row()
+    
+    kb.add(Text("🔄 Обновить"), color=KeyboardButtonColor.PRIMARY)
     
     await message.answer(text, keyboard=kb.get_json())
 
 
-# ═══════════════════════════════════════════════════════
-# 🎁 МЕНЮ ОТКРЫТИЯ КЕЙСОВ
-# ═══════════════════════════════════════════════════════
+# ====================
+# 🎁 МЕНЮ ВЫБОРА КЕЙСА
+# ====================
 
 @labeler.message(payload_map={"cmd": "open_menu"})
 async def open_gift_menu(message: Message):
@@ -107,48 +123,62 @@ async def open_gift_menu(message: Message):
     gifts = await GiftBox.filter(user=user_db, quantity__gt=0).all()
     
     if not gifts:
-        return await message.answer("❌ У тебя нет кейсов", ephemeral=True)
+        return await message.answer(
+            "╔═════════════════════╗\n"
+            "║  😔 КЕЙСОВ НЕТ!      ║\n"
+            "╚═════════════════════╝\n\n"
+            "У тебя нет подарков!\n\n"
+            "Иди фарми РП-посты,\n"
+            "нищеброд! 🦝",
+            ephemeral=True
+        )
     
-    header = create_header("ВЫБЕРИ КЕЙС", "🎁")
-    text = header + "\n\n"
-    
-    # Группируем по редкости
-    by_rarity = {}
-    for g in gifts:
-        if g.rarity not in by_rarity:
-            by_rarity[g.rarity] = []
-        by_rarity[g.rarity].append(g)
-    
-    rarity_order = [Rarity.COMMON, Rarity.RARE, Rarity.EPIC, Rarity.CHILL]
-    rarity_icons = {
-        Rarity.COMMON: "⚪",
-        Rarity.RARE: "🔵",
-        Rarity.EPIC: "🟣",
-        Rarity.CHILL: "🌟"
-    }
+    text = (
+        "╔═════════════════════╗\n"
+        "║  🎁 ВЫБЕРИ КЕЙС      ║\n"
+        "╚═════════════════════╝\n\n"
+        "Какой подарок откроем?\n\n"
+    )
     
     kb = Keyboard(inline=True)
     
-    for rarity in rarity_order:
-        if rarity in by_rarity:
-            text += f"\n{rarity_icons[rarity]} {rarity.value.upper()}\n"
-            for g in by_rarity[rarity]:
-                text += f"  • {g.gift_type.value} × {g.quantity}\n"
-                kb.add(
-                    Text(f"{g.gift_type.value} ({g.rarity.value})", 
-                         payload={"cmd": "open_anim", "rarity": g.rarity.value, "type": g.gift_type.value}),
-                    color=KeyboardButtonColor.POSITIVE
-                )
-                kb.row()
-    
-    text += "\n💡 Нажми на кнопку, чтобы открыть"
+    for g in gifts:
+        rarity_emoji = {
+            Rarity.COMMON: "⚪",
+            Rarity.RARE: "🔵",
+            Rarity.EPIC: "🟣",
+            Rarity.CHILL: "🟡"
+        }.get(g.rarity, "⚫")
+        
+        type_emoji = {
+            GiftType.MONEY: "💰",
+            GiftType.ITEM: "📦",
+            GiftType.TALENT: "✨",
+            GiftType.LUCKY: "🍀",
+            GiftType.FATE: "🔮"
+        }.get(g.gift_type, "🎁")
+        
+        button_text = f"{type_emoji} {g.gift_type.value} {rarity_emoji} ({g.quantity})"
+        
+        kb.add(
+            Text(
+                button_text,
+                payload={
+                    "cmd": "open_anim",
+                    "rarity": g.rarity.value,
+                    "type": g.gift_type.value
+                }
+            ),
+            color=KeyboardButtonColor.POSITIVE
+        )
+        kb.row()
         
     await message.answer(text, keyboard=kb.get_json())
 
 
-# ═══════════════════════════════════════════════════════
+# ====================
 # 🎰 АНИМАЦИЯ ОТКРЫТИЯ КЕЙСА
-# ═══════════════════════════════════════════════════════
+# ====================
 
 @labeler.message(payload_map={"cmd": "open_anim"})
 async def open_gift_process(message: Message):
@@ -157,43 +187,75 @@ async def open_gift_process(message: Message):
     r_val = payload.get("rarity")
     t_val = payload.get("type")
 
+    # Проверка наличия кейса
     box = await GiftBox.filter(user=user_db, rarity=r_val, gift_type=t_val).first()
     if not box or box.quantity < 1:
-        return await message.answer("❌ Такой коробки нет.")
+        return await message.answer(
+            "╔═════════════════════╗\n"
+            "║  ❌ КЕЙСА НЕТ!       ║\n"
+            "╚═════════════════════╝\n\n"
+            "Такой коробки нет!\n"
+            "Кто-то её украл? 🤔",
+            ephemeral=True
+        )
 
+    # Картинка кейса
     box_image = GIFT_IMAGES.get(t_val)
     
     # Анимация открытия
-    frames = [
-        "🎁 Трясем коробку...",
-        "📦 Срываем упаковку...",
-        "✨ Открываем...",
-        "🎊 Что же внутри?..."
-    ]
+    wait_msg = await message.answer(
+        f"╔═════════════════════╗\n"
+        f"║  🎁 ОТКРЫВАЮ КЕЙС... ║\n"
+        f"╚═════════════════════╝\n\n"
+        f"┌─ ИНФОРМАЦИЯ\n"
+        f"│\n"
+        f"├─ Тип: {t_val}\n"
+        f"├─ Редкость: {r_val}\n"
+        f"│\n"
+        f"└─ {'─' * 21}\n\n"
+        f"⏳ Распаковка...\n"
+        f"[{'░' * 10}] 0%",
+        attachment=box_image
+    )
     
-    wait_msg = await message.answer(frames[0], attachment=box_image)
-    
-    for frame in frames[1:]:
-        await asyncio.sleep(0.8)
+    # Прогресс-бар анимация
+    for i in range(1, 6):
+        await asyncio.sleep(0.4)
+        progress = i * 20
+        filled = i * 2
+        bar = f"[{'█' * filled}{'░' * (10 - filled)}] {progress}%"
+        
         try:
             await message.ctx_api.messages.edit(
                 peer_id=message.peer_id,
-                message=frame,
+                message=(
+                    f"╔═════════════════════╗\n"
+                    f"║  🎁 ОТКРЫВАЮ КЕЙС... ║\n"
+                    f"╚═════════════════════╝\n\n"
+                    f"┌─ ИНФОРМАЦИЯ\n"
+                    f"│\n"
+                    f"├─ Тип: {t_val}\n"
+                    f"├─ Редкость: {r_val}\n"
+                    f"│\n"
+                    f"└─ {'─' * 21}\n\n"
+                    f"⏳ Распаковка...\n"
+                    f"{bar}"
+                ),
                 conversation_message_id=wait_msg.conversation_message_id,
                 attachment=box_image
             )
         except:
             pass
-    
+
     await asyncio.sleep(0.5)
 
-    # Логика дропа
+    # Логика выдачи
     amount = 0
     won_item = None
     pool = []
 
-    # Чилликовый кейс
     if box.gift_type == GiftType.MONEY:
+        # Выдача денег
         ranges = {
             Rarity.COMMON: (10, 500),
             Rarity.RARE: (500, 2000),
@@ -202,19 +264,19 @@ async def open_gift_process(message: Message):
         }
         mn, mx = ranges.get(box.rarity, (10, 100))
         amount = random.randint(mn, mx)
+        
         user_db.balance += amount
         await user_db.save()
         await auto_update_card(message.ctx_api, user_db)
 
-    # Предметный кейс
     elif box.gift_type in [GiftType.ITEM, GiftType.TALENT, GiftType.LUCKY]:
+        # Выдача предмета
         target_type = ItemType.ITEM
         if box.gift_type == GiftType.TALENT:
             target_type = ItemType.TALENT
-        if box.gift_type == GiftType.LUCKY:
+        elif box.gift_type == GiftType.LUCKY:
             target_type = ItemType.ABILITY
         
-        # Сначала ищем по редкости, потом любые
         pool = await Item.filter(type=target_type, rarity=box.rarity).all()
         if not pool:
             pool = await Item.filter(type=target_type).all()
@@ -224,96 +286,122 @@ async def open_gift_process(message: Message):
             inv, _ = await Inventory.get_or_create(user=user_db, item=won_item)
             inv.quantity += 1
             await inv.save()
+            
+            # Если у предмета есть фото, используем его
             if won_item.photo_id:
                 box_image = won_item.photo_id
 
-    # Уменьшаем кейсы
+    # Удаляем кейс
     box.quantity -= 1
     if box.quantity <= 0:
         await box.delete()
     else:
         await box.save()
 
-    # Финальное сообщение
-    rarity_icons = {
-        Rarity.COMMON: "⚪",
-        Rarity.RARE: "🔵",
-        Rarity.EPIC: "🟣",
-        Rarity.CHILL: "🌟"
-    }
+    # Формируем результат
+    header = "🎉 КЕЙС ОТКРЫТ!"
+    if box.gift_type == GiftType.FATE:
+        header = "🔮 СУДЬБОНОСНОЕ!"
     
-    icon = rarity_icons.get(box.rarity, "🎁")
-    header = create_header("ОТКРЫТО", icon)
-    final_text = header + "\n\n"
+    final_text = (
+        f"╔═════════════════════╗\n"
+        f"║  {header:^19}  ║\n"
+        f"╚═════════════════════╝\n\n"
+    )
 
-    # Чилликовый дроп
     if box.gift_type == GiftType.MONEY:
-        amount_formatted = f"{amount:,}".replace(",", " ")
-        balance_formatted = f"{user_db.balance:,}".replace(",", " ")
-        
-        # Реакция на сумму
-        reaction = "💰" if amount < 1000 else "💎" if amount < 5000 else "🤑"
-        
+        # Результат денег
         final_text += (
-            f"  {reaction} Выпало: {amount_formatted} чилликов\n\n"
-            f"  📊 Баланс: {balance_formatted} ₽\n"
+            f"┌─ 💰 ПОЛУЧЕНО\n"
+            f"│\n"
+            f"├─ Чилликов: {amount:,}₽\n"
+            f"├─ Редкость: {r_val}\n"
+            f"│\n"
+            f"└─ {'─' * 21}\n\n"
+            f"{'═' * 25}\n\n"
+            f"📊 Баланс: {user_db.balance:,}₽\n\n"
+            f"Красавчик! Проебешь? 💸"
         )
         
-        if amount > 5000:
-            final_text += "\n  🎉 Отличный дроп!\n"
-
-    # Судьбоносный кейс
     elif box.gift_type == GiftType.FATE:
+        # Судьбоносный кейс
         final_text += (
-            "  🔮 СУДЬБОНОСНОЕ СОБЫТИЕ!\n\n"
-            "  ⚡ Администрация уведомлена\n"
-            "  ↳ Ожидай особый приз...\n"
+            f"⚡ СУДЬБОНОСНОЕ СОБЫТИЕ!\n\n"
+            f"🔮 Боги обратили на тебя\n"
+            f"   внимание!\n\n"
+            f"Администрация уведомлена.\n"
+            f"Жди своей награды... 👑\n\n"
+            f"{'═' * 25}\n\n"
+            f"Удача на твоей стороне! ✨"
         )
+        
         # Уведомляем админов
         for admin_id in ADMIN_IDS:
             try:
                 await message.ctx_api.messages.send(
                     peer_id=admin_id,
                     message=(
-                        f"{create_header('СУДЬБА', '🔮')}\n\n"
-                        f"  👤 Игрок: {user_db.first_name}\n"
-                        f"  🆔 ID: {user_db.vk_id}\n\n"
-                        f"  Выбил судьбоносный кейс!\n"
+                        f"╔═════════════════════╗\n"
+                        f"║  🚨 СУДЬБОНОСНОЕ!    ║\n"
+                        f"╚═════════════════════╝\n\n"
+                        f"👤 Игрок: {user_db.first_name}\n"
+                        f"🆔 ID: {user_db.vk_id}\n\n"
+                        f"🔮 Выбил судьбоносный\n"
+                        f"   кейс!\n\n"
+                        f"Подари ему что-то\n"
+                        f"эпическое! 🎁"
                     ),
                     random_id=0
                 )
             except:
                 pass
-
-    # Предметный дроп
+                
     else:
+        # Результат предмета
         if won_item:
-            type_icons = {
+            rarity_emoji = {
+                Rarity.COMMON: "⚪",
+                Rarity.RARE: "🔵",
+                Rarity.EPIC: "🟣",
+                Rarity.CHILL: "🟡"
+            }.get(won_item.rarity, "⚫")
+            
+            type_emoji = {
                 ItemType.ITEM: "⚔️",
                 ItemType.TALENT: "✨",
                 ItemType.ABILITY: "🔮"
-            }
-            type_icon = type_icons.get(won_item.type, "📦")
+            }.get(won_item.type, "📦")
             
             final_text += (
-                f"  {type_icon} {won_item.name}\n"
-                f"  ━━━━━━━━━━━━━━━\n"
-                f"  • Ранг: {won_item.rarity.value}\n"
-                f"  • Тип: {won_item.type.value}\n\n"
+                f"┌─ {type_emoji} ПРЕДМЕТ ПОЛУЧЕН\n"
+                f"│\n"
+                f"├─ Название:\n"
+                f"│  └─ {won_item.name}\n"
+                f"│\n"
+                f"├─ Редкость:\n"
+                f"│  └─ {rarity_emoji} {won_item.rarity.value}\n"
+                f"│\n"
+                f"├─ Тип:\n"
+                f"│  └─ {won_item.type.value}\n"
+                f"│\n"
+                f"└─ {'─' * 21}\n\n"
+                f"{'═' * 25}\n\n"
+                f"📦 Сохранено в инвентарь!\n\n"
+                f"Не потеряй, лох! 🎒"
             )
-            
-            if won_item.description != "Описание от администрации":
-                final_text += f"  📝 {won_item.description}\n\n"
-            
-            final_text += "  ✅ Сохранено в инвентарь!\n"
         else:
             final_text += (
-                "  💨 Пусто...\n\n"
-                "  База предметов для этого\n"
-                "  типа кейса пока пуста.\n"
+                f"💨 ПУСТОТА!\n\n"
+                f"В кейсе ничего не было...\n"
+                f"База предметов пуста! 🕸️\n\n"
+                f"{'═' * 25}\n\n"
+                f"Админы забыли добавить\n"
+                f"предметы в базу! 🤡\n\n"
+                f"Попроси их исправить это:\n"
+                f"!Создать [имя] [ранг] [тип]"
             )
 
-    # Обновляем сообщение
+    # Отправляем результат
     try:
         await message.ctx_api.messages.edit(
             peer_id=message.peer_id,
@@ -326,23 +414,25 @@ async def open_gift_process(message: Message):
         await message.answer(final_text, attachment=box_image)
 
 
-# ═══════════════════════════════════════════════════════
-# 🎭 КОМАНДА: ПЕРСОНАЖИ (ЗАГЛУШКА)
-# ═══════════════════════════════════════════════════════
+# ====================
+# 🎭 ПЕРСОНАЖИ (ЗАГЛУШКА)
+# ====================
 
-@labeler.message(regex=r"^(?i)(?:🎭\s*)?(?:Персонажи|Персы|Characters)$")
+@labeler.message(regex=r"^(?i)(?:Персонажи|Characters|🎭 Персонажи)$")
 async def show_chars_placeholder(message: Message):
-    header = create_header("ПЕРСОНАЖИ", "🎭")
-    
-    text = (
-        f"{header}\n\n"
-        f"  🚧 Раздел в разработке\n\n"
-        f"  Скоро здесь появится:\n"
-        f"  • Создание персонажей\n"
-        f"  • Кастомизация внешности\n"
-        f"  • Система характеристик\n"
-        f"  • Инвентарь персонажа\n\n"
-        f"  ⏳ Ожидайте обновления!\n"
+    await message.answer(
+        "╔═════════════════════╗\n"
+        "║  🚧 В РАЗРАБОТКЕ     ║\n"
+        "╚═════════════════════╝\n\n"
+        "🎭 Раздел персонажей\n"
+        "   находится в стадии\n"
+        "   разработки!\n\n"
+        "Скоро здесь появится:\n"
+        "• Создание персонажей\n"
+        "• Карточки персонажей\n"
+        "• Навыки и способности\n"
+        "• Система прокачки\n\n"
+        "{'═' * 25}\n\n"
+        "⏳ Ожидайте обновления!\n\n"
+        "P.S. Терпение, нищеброды! 🦝"
     )
-    
-    await message.answer(text)
