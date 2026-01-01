@@ -75,7 +75,7 @@ async def auto_update_card(api, user_db, debug_message: Message = None):
         f"├─ 👤 {user_db.first_name}\n"
         f"├─ 🎭 {user_db.get_rank()}\n"
         f"│\n"
-        f"└─ 💰 {user_db.balance:,} ₽\n\n"
+        f"└─ 💰 {user_db.balance:,} чилликов\n\n"
         f"┌─ РЕПУТАЦИЯ\n"
         f"│\n"
         f"└─ {karma_status}\n\n"
@@ -86,7 +86,7 @@ async def auto_update_card(api, user_db, debug_message: Message = None):
         f"🕒 Обновлено:\n"
         f"   {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
         f"{'═' * 25}\n\n"
-        f"ChillLay RP | @chillayoff"
+        f"ChillLay RP"
     )
 
     try:
