@@ -81,7 +81,7 @@ async def auto_update_card(api, user_db, debug_message: Message = None):
         f"└─ {karma_status}\n\n"
         f"┌─ ЗАРПЛАТА\n"
         f"│\n"
-        f"└─ 💳 {user_db.rp_pending_balance:,} ₽\n\n"
+        f"└─ 💳 {user_db.rp_pending_balance:,} чилликов\n\n"
         f"{'═' * 25}\n"
         f"🕒 Обновлено:\n"
         f"   {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
