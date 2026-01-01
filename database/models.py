@@ -50,12 +50,12 @@ class User(models.Model):
     def get_rank(self) -> str:
         suffix = " (Гниль 💩)" if self.karma < -10 else ""
         b = self.balance
-        if b < 1000: return f"Бродяга 🍂{suffix}"
-        if b < 5000: return f"Житель 🏠{suffix}"
-        if b < 20000: return f"Торгаш ⚖️{suffix}"
-        if b < 50000: return f"Барон 🎩{suffix}"
-        if b < 100000: return f"Магнат 💎{suffix}"
-        if b < 500000: return f"Монополист 🏛{suffix}"
+        if b < 1000: return f"Амеба 🦠{suffix}"
+        if b < 5000: return f"Биомусор 🗑{suffix}"
+        if b < 20000: return f"Попущ 🤡{suffix}"
+        if b < 50000: return f"Говночист 🚽{suffix}"
+        if b < 100000: return f"Крыса 🐀{suffix}"
+        if b < 500000: return f"Скам-мамонт 🐒{suffix}"
         if b < 1000000: return f"Шизоид при бабках 💊{suffix}"
         return f"Папик 👑{suffix}"
 
@@ -119,3 +119,4 @@ class Promo(models.Model):
     max_activations = fields.IntField()
     current_activations = fields.IntField(default=0)
     users_activated = fields.JSONField(default=list)
+
